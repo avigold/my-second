@@ -121,6 +121,7 @@ def _parse_game(game: chess.pgn.Game, root_fen: str, side: str) -> dict | None:
         "novelty_dest":     novelty_dest,
         "fen_before":       fen_before,
         "fen_after":        fen_after,
+        "root_fen":         root_board.fen(),
         "book_moves_san":   book_moves_san,
         "continuations_san": continuations_san,
         "depth_evals":      depth_evals,

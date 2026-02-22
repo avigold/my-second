@@ -38,6 +38,11 @@ export default function App({ jobId, side }) {
 
   const current = novelties[selected]
 
+  const handleSelectNovelty = (novelty) => {
+    const idx = novelties.findIndex(n => n.rank === novelty.rank)
+    if (idx !== -1) setSelected(idx)
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* Left: table */}
@@ -66,7 +71,12 @@ export default function App({ jobId, side }) {
 
       {/* Right: board + detail */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
-        <NoveltyBoard novelty={current} orientation={side} />
+        <NoveltyBoard
+          novelty={current}
+          allNovelties={novelties}
+          orientation={side}
+          onSelectNovelty={handleSelectNovelty}
+        />
       </div>
     </div>
   )

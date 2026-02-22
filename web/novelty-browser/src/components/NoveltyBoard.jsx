@@ -1,94 +1,303 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import Chessground from '@react-chess/chessground'
+import { Chess } from 'chess.js'
 
 const BOARD_SIZE = 480
 
-export default function NoveltyBoard({ novelty, orientation }) {
-  const [showAfter, setShowAfter] = useState(false)
+export default function NoveltyBoard({ novelty, allNovelties, orientation, onSelectNovelty }) {
+  const [currentPly, setCurrentPly] = useState(0)
+
+  // ---------- Build positions array from root FEN + all moves ----------
+  const { positions, noveltyPly } = useMemo(() => {
+    if (!novelty) return { positions: [], noveltyPly: 0 }
+
+    const chess = new Chess(novelty.root_fen)
+    const positions = [{ fen: chess.fen(), lastMove: null, san: null, isNovelty: false, isCont: false }]
+
+    for (const san of novelty.book_moves_san) {
+      const m = chess.move(san)
+      positions.push({ fen: chess.fen(), lastMove: [m.from, m.to], san, isNovelty: false, isCont: false })
+    }
+
+    const noveltyPly = positions.length
+    try {
+      const m = chess.move(novelty.novelty_san)
+      positions.push({ fen: chess.fen(), lastMove: [m.from, m.to], san: novelty.novelty_san, isNovelty: true, isCont: false })
+    } catch {
+      // Fallback if chess.js can't parse the SAN (shouldn't happen, but be safe)
+      positions.push({ fen: novelty.fen_after, lastMove: [novelty.novelty_orig, novelty.novelty_dest], san: novelty.novelty_san, isNovelty: true, isCont: false })
+    }
+
+    for (const san of novelty.continuations_san) {
+      try {
+        const m = chess.move(san)
+        positions.push({ fen: chess.fen(), lastMove: [m.from, m.to], san, isNovelty: false, isCont: true })
+      } catch { break }
+    }
+
+    return { positions, noveltyPly }
+  }, [novelty])
+
+  // Jump to the novelty position whenever the selected novelty changes
+  useEffect(() => {
+    setCurrentPly(noveltyPly)
+  }, [noveltyPly, novelty?.rank])
+
+  // Arrow-key navigation
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'ArrowLeft')  setCurrentPly(p => Math.max(0, p - 1))
+      if (e.key === 'ArrowRight') setCurrentPly(p => Math.min(positions.length - 1, p + 1))
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [positions.length])
+
+  // ---------- Branch map: position index → [{san, rank}] ----------
+  // branchMap[i] = alternative moves from position i that other novelties take
+  const branchMap = useMemo(() => {
+    if (!novelty || !allNovelties?.length) return {}
+    const map = {}
+    const myMoves = [...novelty.book_moves_san, novelty.novelty_san]
+
+    for (const other of allNovelties) {
+      if (other.rank === novelty.rank) continue
+      const otherMoves = [...other.book_moves_san, other.novelty_san]
+      for (let i = 0; i < myMoves.length && i < otherMoves.length; i++) {
+        if (myMoves[i] !== otherMoves[i]) {
+          if (!map[i]) map[i] = []
+          if (!map[i].find(b => b.san === otherMoves[i]))
+            map[i].push({ san: otherMoves[i], rank: other.rank })
+          break
+        }
+      }
+    }
+    return map
+  }, [novelty, allNovelties])
 
   if (!novelty) return null
 
-  const fen        = showAfter ? novelty.fen_after : novelty.fen_before
-  const lastMove   = showAfter ? undefined : [novelty.novelty_orig, novelty.novelty_dest]
-
-  // Chessground config
+  const pos = positions[currentPly] || positions[0]
   const config = {
-    fen,
+    fen: pos.fen,
     orientation,
-    lastMove,
-    movable:    { free: false, color: 'none' },
-    draggable:  { enabled: false },
+    lastMove: pos.lastMove ?? undefined,
+    movable:  { free: false, color: 'none' },
+    draggable: { enabled: false },
     selectable: { enabled: false },
-    animation:  { enabled: true, duration: 200 },
+    animation: { enabled: true, duration: 200 },
   }
 
-  const ply     = novelty.book_moves_san.length
-  const moveNum = Math.floor(ply / 2) + 1
-  const dots    = ply % 2 === 1 ? '…' : '.'
-
   return (
-    <div>
-      {/* Move path breadcrumb */}
-      <div style={{ marginBottom: 16, fontSize: 13, color: '#9ca3af', lineHeight: 1.6 }}>
-        {novelty.book_moves_san.length === 0
-          ? <span style={{ color: '#6b7280' }}>Starting position</span>
-          : <MovePath moves={novelty.book_moves_san} />
-        }
-        <span style={{ color: '#f3f4f6', fontWeight: 700, marginLeft: 6 }}>
-          → {moveNum}{dots}
-          <span style={{ color: '#fbbf24' }}>{novelty.novelty_san}</span>
-          {novelty.post_novelty_games === 0 &&
-            <span style={{ color: '#60a5fa', fontSize: 11, marginLeft: 4 }}>(TN)</span>}
-        </span>
+    <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+
+      {/* Left: board + nav */}
+      <div style={{ flexShrink: 0 }}>
+        <div style={{ width: BOARD_SIZE, height: BOARD_SIZE }}>
+          <Chessground width={BOARD_SIZE} height={BOARD_SIZE} config={config} />
+        </div>
+        <NavBar
+          currentPly={currentPly}
+          maxPly={positions.length - 1}
+          noveltyPly={noveltyPly}
+          setCurrentPly={setCurrentPly}
+        />
       </div>
 
-      {/* Board + right panel side-by-side */}
-      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-        {/* Board */}
-        <div style={{ flexShrink: 0 }}>
-          <div style={{ width: BOARD_SIZE, height: BOARD_SIZE }}>
-            <Chessground width={BOARD_SIZE} height={BOARD_SIZE} config={config} />
-          </div>
-
-          {/* Before / After toggle */}
-          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-            <ToggleBtn active={!showAfter} onClick={() => setShowAfter(false)}>
-              Before
-            </ToggleBtn>
-            <ToggleBtn active={showAfter} onClick={() => setShowAfter(true)}>
-              After {novelty.novelty_san}
-            </ToggleBtn>
-          </div>
-        </div>
-
-        {/* Right panel: eval + continuations */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <EvalPanel novelty={novelty} />
-          {novelty.continuations_san.length > 0 && (
-            <ContinuationPanel moves={novelty.continuations_san} startPly={ply + 1} />
-          )}
-        </div>
+      {/* Right: move list + eval */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <MoveList
+          positions={positions}
+          currentPly={currentPly}
+          noveltyPly={noveltyPly}
+          onSelect={setCurrentPly}
+          branchMap={branchMap}
+          rootFen={novelty.root_fen}
+          onSelectNovelty={onSelectNovelty}
+          allNovelties={allNovelties}
+        />
+        <EvalPanel novelty={novelty} />
       </div>
     </div>
   )
 }
 
-/* ---- Sub-components ---- */
+// ---------------------------------------------------------------------------
+// NavBar
+// ---------------------------------------------------------------------------
 
-function MovePath({ moves }) {
-  const parts = []
-  moves.forEach((san, i) => {
-    if (i % 2 === 0) parts.push(
-      <span key={`n${i}`} style={{ color: '#6b7280', marginRight: 2 }}>
-        {Math.floor(i / 2) + 1}.
-      </span>
-    )
-    parts.push(
-      <span key={`m${i}`} style={{ color: '#d1d5db', marginRight: 4 }}>{san}</span>
-    )
-  })
-  return <>{parts}</>
+function NavBar({ currentPly, maxPly, noveltyPly, setCurrentPly }) {
+  const btn = (label, onClick, title, highlight) => (
+    <button onClick={onClick} title={title} style={{
+      background: highlight ? '#78350f' : '#1f2937',
+      color: highlight ? '#fbbf24' : '#9ca3af',
+      border: 'none', borderRadius: 4,
+      padding: '5px 10px', fontSize: 13, cursor: 'pointer',
+      transition: 'background 0.1s',
+    }}>{label}</button>
+  )
+  return (
+    <div style={{ marginTop: 10, display: 'flex', gap: 6, justifyContent: 'center' }}>
+      {btn('⏮', () => setCurrentPly(0),       'Start (Home)')}
+      {btn('◀', () => setCurrentPly(p => Math.max(0, p - 1)),       'Previous (←)')}
+      {btn('▶', () => setCurrentPly(p => Math.min(maxPly, p + 1)),  'Next (→)')}
+      {btn('⏭', () => setCurrentPly(maxPly),  'End')}
+      {btn('★', () => setCurrentPly(noveltyPly), 'Jump to novelty', true)}
+    </div>
+  )
 }
+
+// ---------------------------------------------------------------------------
+// MoveList — full game score with click-to-navigate and branch annotations
+// ---------------------------------------------------------------------------
+
+function MoveList({ positions, currentPly, noveltyPly, onSelect, branchMap, rootFen, onSelectNovelty, allNovelties }) {
+  const activeRef = useRef(null)
+
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [currentPly])
+
+  // Parse root FEN for move-number and side-to-move
+  const fenParts   = (rootFen || '').split(' ')
+  const rootIsBlack = fenParts[1] === 'b'
+  const startMoveNum = parseInt(fenParts[5]) || 1
+
+  // Build flat list of move descriptors (one per position[1..N])
+  const moves = positions.slice(1).map((pos, j) => {
+    // j = 0-indexed position in slice → plyIndex = j+1 in original positions array
+    // Which side played move j+1?
+    const turnOffset = rootIsBlack ? 1 : 0
+    const isWhite = (j + turnOffset) % 2 === 0
+    const moveNum = startMoveNum + Math.floor((j + turnOffset) / 2)
+    return {
+      ...pos,
+      plyIndex: j + 1,
+      isWhite,
+      moveNum,
+      isCurrent: currentPly === j + 1,
+      branches: branchMap[j] || [],   // alternatives at positions[j] (before this move)
+    }
+  })
+
+  // Group into display rows: [{ moveNum, white, black }]
+  const rows = []
+  let i = 0
+  if (rootIsBlack && moves.length > 0) {
+    rows.push({ moveNum: moves[0].moveNum, white: null, black: moves[0] })
+    i = 1
+  }
+  while (i < moves.length) {
+    rows.push({ moveNum: moves[i].moveNum, white: moves[i], black: moves[i + 1] ?? null })
+    i += 2
+  }
+
+  // Separator index: between last book move and novelty in the rows
+  const noveltyMoveIndex = noveltyPly - 1  // index in `moves` array
+
+  return (
+    <div style={{
+      background: '#0f172a', borderRadius: 8, padding: '10px 12px',
+      marginBottom: 12, maxHeight: 300, overflowY: 'auto',
+      fontFamily: 'monospace', fontSize: 13, lineHeight: 1.7,
+    }}>
+      {rows.map(({ moveNum, white, black }, rowIdx) => {
+        // Check if novelty falls in this row — to draw the separator line
+        const noveltyIsWhiteHere = white?.plyIndex === noveltyPly
+        const noveltyIsBlackHere = black?.plyIndex === noveltyPly
+
+        return (
+          <React.Fragment key={rowIdx}>
+            {(noveltyIsWhiteHere || noveltyIsBlackHere) && (
+              <div style={{ borderTop: '1px solid #1f2937', margin: '4px 0' }} />
+            )}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+              <span style={{ color: '#4b5563', minWidth: 32, textAlign: 'right',
+                             paddingRight: 6, paddingTop: 2, fontSize: 11 }}>
+                {moveNum}.{rootIsBlack && rowIdx === 0 ? '..' : ''}
+              </span>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
+                {white && <MoveChip move={white} activeRef={activeRef} onSelect={onSelect}
+                            onSelectNovelty={onSelectNovelty} allNovelties={allNovelties} />}
+                {!white && black && (
+                  // Black-only row at start (root is black to move)
+                  <span style={{ minWidth: 52, display: 'inline-block' }} />
+                )}
+                {black && <MoveChip move={black} activeRef={activeRef} onSelect={onSelect}
+                            onSelectNovelty={onSelectNovelty} allNovelties={allNovelties} />}
+              </div>
+            </div>
+          </React.Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
+function MoveChip({ move, activeRef, onSelect, onSelectNovelty, allNovelties }) {
+  const { san, plyIndex, isCurrent, isNovelty, isCont, branches } = move
+
+  const textColor  = isNovelty ? '#fbbf24' : isCont ? '#6b7280' : '#e5e7eb'
+  const bgColor    = isCurrent
+    ? (isNovelty ? '#78350f' : '#1e3a5f')
+    : 'transparent'
+
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', minWidth: 52 }}>
+      {/* Main move */}
+      <span
+        ref={isCurrent ? activeRef : null}
+        onClick={() => onSelect(plyIndex)}
+        title={isCont ? 'Engine continuation' : isNovelty ? 'Novelty' : 'Book move'}
+        style={{
+          color: textColor, background: bgColor,
+          borderRadius: 3, padding: '1px 5px',
+          cursor: 'pointer', fontWeight: isNovelty ? 700 : 400,
+          display: 'inline-block',
+        }}
+      >
+        {san}{isNovelty ? '!' : ''}
+      </span>
+
+      {/* Branch alternatives from other novelties */}
+      {branches.length > 0 && (
+        <span style={{ display: 'flex', flexDirection: 'column', gap: 1, paddingLeft: 5, marginTop: 1 }}>
+          {branches.map(({ san: bSan, rank }) => (
+            <BranchChip key={rank} san={bSan} rank={rank}
+              onSelectNovelty={onSelectNovelty} allNovelties={allNovelties} />
+          ))}
+        </span>
+      )}
+    </span>
+  )
+}
+
+function BranchChip({ san, rank, onSelectNovelty, allNovelties }) {
+  const handleClick = (e) => {
+    e.stopPropagation()
+    if (!onSelectNovelty || !allNovelties) return
+    const target = allNovelties.find(n => n.rank === rank)
+    if (target) onSelectNovelty(target)
+  }
+  return (
+    <span
+      onClick={handleClick}
+      title={`Rank ${rank}: ${san}`}
+      style={{
+        color: '#4ade80', fontSize: 10, cursor: 'pointer',
+        display: 'inline-block', padding: '0 3px',
+        border: '1px solid #166534', borderRadius: 3,
+        lineHeight: 1.6,
+      }}
+    >
+      ↳ {san}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// EvalPanel
+// ---------------------------------------------------------------------------
 
 function EvalPanel({ novelty }) {
   const { eval_cp, stability, score, pre_novelty_games, post_novelty_games, depth_evals } = novelty
@@ -100,7 +309,7 @@ function EvalPanel({ novelty }) {
     ['Post-novelty games', post_novelty_games === 0 ? 'True novelty (0)' : post_novelty_games],
   ]
   return (
-    <div style={{ background: '#111827', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+    <div style={{ background: '#111827', borderRadius: 8, padding: 16 }}>
       <div style={{ color: '#9ca3af', fontSize: 11, textTransform: 'uppercase',
                     letterSpacing: '0.05em', marginBottom: 10 }}>Evaluation</div>
       {rows.map(([label, val]) => (
@@ -121,45 +330,5 @@ function EvalPanel({ novelty }) {
         </div>
       )}
     </div>
-  )
-}
-
-function ContinuationPanel({ moves, startPly }) {
-  const parts = []
-  moves.forEach((san, i) => {
-    const ply = startPly + i
-    if (ply % 2 === 0) parts.push(
-      <span key={`n${i}`} style={{ color: '#4b5563', marginRight: 2 }}>
-        {Math.floor(ply / 2) + 1}.
-      </span>
-    )
-    parts.push(
-      <span key={`m${i}`} style={{ color: '#d1d5db', marginRight: 5 }}>{san}</span>
-    )
-  })
-  return (
-    <div style={{ background: '#111827', borderRadius: 8, padding: 16 }}>
-      <div style={{ color: '#9ca3af', fontSize: 11, textTransform: 'uppercase',
-                    letterSpacing: '0.05em', marginBottom: 8 }}>Engine continuation</div>
-      <div style={{ lineHeight: 2, fontSize: 13 }}>{parts}</div>
-    </div>
-  )
-}
-
-function ToggleBtn({ active, onClick, children }) {
-  return (
-    <button onClick={onClick} style={{
-      background: active ? '#f59e0b' : '#1f2937',
-      color:      active ? '#030712' : '#9ca3af',
-      border:     'none',
-      borderRadius: 4,
-      padding:    '5px 12px',
-      fontSize:   12,
-      fontWeight: active ? 700 : 400,
-      cursor:     'pointer',
-      transition: 'all 0.15s',
-    }}>
-      {children}
-    </button>
   )
 }
