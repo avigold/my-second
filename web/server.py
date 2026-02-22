@@ -18,9 +18,10 @@ from flask import (
     stream_with_context,
 )
 
+from habits_parser import parse_habits
 from jobs import Job, JobRegistry
 from pgn_parser import parse_novelties
-from runner import build_fetch_argv, build_import_argv, build_search_argv, launch_job
+from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_search_argv, launch_job
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -246,9 +247,47 @@ def api_delete_job(job_id: str):
     return jsonify({"status": "deleted"})
 
 
+@app.get("/habits")
+def habits_page():
+    return render_template("habits.html")
+
+
+@app.get("/jobs/<job_id>/habits-browser")
+def habits_browser_page(job_id: str):
+    job = registry.get(job_id)
+    if job is None:
+        return "Job not found", 404
+    return render_template("habits_browser.html", job_id=job_id, job=job.to_dict())
+
+
 @app.get("/import-pgn")
 def import_pgn_page():
     return render_template("import.html")
+
+
+@app.post("/api/habits")
+def api_habits():
+    params = request.get_json(force=True)
+    if not params.get("username") or not params.get("color"):
+        return jsonify({"error": "username and color are required"}), 400
+
+    job = registry.create("habits", params)
+    out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
+    job.out_path = out_path
+
+    argv = build_habits_argv(params, out_path)
+    launch_job(job, argv, REPO_ROOT, registry)
+    return jsonify({"job_id": job.id})
+
+
+@app.get("/api/jobs/<job_id>/habits")
+def api_habits_data(job_id: str):
+    job = registry.get(job_id)
+    if job is None:
+        return jsonify({"error": "not found"}), 404
+    if not job.out_path or not Path(job.out_path).exists():
+        return jsonify([])
+    return jsonify(parse_habits(job.out_path))
 
 
 @app.post("/api/import-pgn")

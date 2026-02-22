@@ -33,6 +33,7 @@ from typing import Any
 import requests
 
 from .cache import Cache
+from .fetcher import _backend_key
 from .models import ExplorerData, MoveStats
 
 _LICHESS_PLAYER_URL = "https://explorer.lichess.ovh/player"
@@ -61,14 +62,16 @@ class PlayerExplorer:
         color: str,
         cache: Cache,
         speeds: str = "rapid,classical",
+        platform: str = "lichess",
     ) -> None:
         if color not in ("white", "black"):
             raise ValueError(f"color must be 'white' or 'black', got {color!r}")
         self._username = username
         self._color = color
         self._speeds = speeds
+        self._platform = platform
         # Cache key encodes all query dimensions so different configs don't collide.
-        self._backend = f"lichess_player_{username.lower()}_{color}_{speeds}"
+        self._backend = _backend_key(username, color, speeds, platform=platform)
         self._cache = cache
         self._session = requests.Session()
         self._session.headers.update(

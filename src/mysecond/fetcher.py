@@ -49,10 +49,15 @@ import requests
 from .cache import Cache
 
 _LICHESS_GAMES_URL = "https://lichess.org/api/games/user/{username}"
+_CHESSCOM_ARCHIVES_URL = "https://api.chess.com/pub/player/{username}/games/archives"
+_CHESSCOM_PLAYER_URL = "https://api.chess.com/pub/player/{username}"
 _DEFAULT_DB = Path("data/cache.sqlite")
 _HEADERS = {
     "Accept": "application/x-chess-pgn",
-    "User-Agent": "mysecond/0.1.0",
+    "User-Agent": "mysecond/0.1.0 (chess analysis tool)",
+}
+_CHESSCOM_HEADERS = {
+    "User-Agent": "mysecond/0.1.0 (chess analysis tool)",
 }
 
 
@@ -98,7 +103,7 @@ def fetch_player_games(
     int
         Number of unique positions indexed.
     """
-    backend = _backend_key(username, color, speeds)
+    backend = _backend_key(username, color, speeds, platform="lichess")
 
     if verbose:
         print(
@@ -138,9 +143,85 @@ def fetch_player_games(
     return len(book)
 
 
-def last_fetch_ts(username: str, color: str, speeds: str, cache: Cache) -> int | None:
+def fetch_player_games_chesscom(
+    username: str,
+    color: str,                          # 'white' or 'black'
+    cache: Cache,
+    speeds: str = "blitz,rapid",
+    max_plies: int = 30,
+    max_games: int = 10_000,
+    since_ts: int | None = None,         # Unix milliseconds
+    verbose: bool = True,
+) -> int:
+    """Download games from Chess.com and populate the cache with per-position statistics.
+
+    Parameters
+    ----------
+    username:
+        Chess.com username (case-insensitive).
+    color:
+        ``'white'`` or ``'black'`` — the colour to index.
+    cache:
+        Shared :class:`~mysecond.cache.Cache` instance.
+    speeds:
+        Comma-separated Chess.com time classes: ``blitz``, ``rapid``, ``bullet``, ``daily``.
+        Note: Chess.com has no ``classical`` — use ``blitz,rapid`` for standard prep.
+    max_plies:
+        Walk each game at most this many half-moves deep.
+    max_games:
+        Maximum games to download.
+    since_ts:
+        If set, only download games played after this Unix-millisecond timestamp
+        and merge into existing cache entries (incremental update).
+    verbose:
+        Print progress messages.
+
+    Returns
+    -------
+    int
+        Number of unique positions indexed.
+    """
+    backend = _backend_key(username, color, speeds, platform="chesscom")
+
+    if verbose:
+        print(
+            f"[fetch] Downloading {username}'s Chess.com games as {color} "
+            f"({speeds}) – up to {max_games} games …",
+            flush=True,
+        )
+
+    pgn_text = _download_chesscom_pgn(username, color, speeds, max_games, since_ts)
+
+    if not pgn_text.strip():
+        if verbose:
+            print("[fetch] No games returned (check username / colour / speeds).")
+        return 0
+
+    if verbose:
+        print("[fetch] Parsing games and building opening book …", flush=True)
+
+    book = _build_book(pgn_text, color, max_plies, verbose=verbose)
+
+    if not book:
+        if verbose:
+            print("[fetch] No positions extracted.")
+        return 0
+
+    if verbose:
+        print(f"[fetch] Writing {len(book)} positions to cache …", flush=True)
+
+    _store_book(book, cache, backend, merge=since_ts is not None)
+    _write_fetch_meta(cache, backend)
+
+    if verbose:
+        print(f"[fetch] Done. {len(book)} positions cached for {username} ({color}).")
+
+    return len(book)
+
+
+def last_fetch_ts(username: str, color: str, speeds: str, cache: Cache, platform: str = "lichess") -> int | None:
     """Return the Unix-ms timestamp of the last successful fetch, or None."""
-    backend = _backend_key(username, color, speeds)
+    backend = _backend_key(username, color, speeds, platform=platform)
     meta_key = f"_fetch_meta_{backend}"
     row = cache.get(meta_key, "meta")
     if row is None:
@@ -193,6 +274,119 @@ def _download_pgn(
         ) from exc
     finally:
         session.close()
+
+
+def _download_chesscom_pgn(
+    username: str,
+    color: str,
+    speeds: str,
+    max_games: int,
+    since_ts: int | None,
+) -> str:
+    """Download PGN text from Chess.com for one player/color/speeds combination."""
+    from calendar import monthrange
+
+    speeds_set = {s.strip().lower() for s in speeds.split(",")}
+    session = requests.Session()
+    session.headers.update(_CHESSCOM_HEADERS)
+
+    # Verify the player exists.
+    try:
+        profile_resp = session.get(
+            _CHESSCOM_PLAYER_URL.format(username=username), timeout=15
+        )
+        if profile_resp.status_code == 404:
+            raise RuntimeError(
+                f"Chess.com user '{username}' not found (404). "
+                "Check the spelling — Chess.com usernames are case-insensitive."
+            )
+        profile_resp.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Could not verify Chess.com user '{username}': {exc}") from exc
+
+    # Resolve the canonical username from the profile (preserves casing for matching).
+    canonical = profile_resp.json().get("username", username)
+
+    # Fetch archive list.
+    try:
+        arch_resp = session.get(
+            _CHESSCOM_ARCHIVES_URL.format(username=canonical), timeout=15
+        )
+        arch_resp.raise_for_status()
+        archive_urls: list[str] = arch_resp.json().get("archives", [])
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            f"Failed to fetch Chess.com archives for {username}: {exc}"
+        ) from exc
+
+    # Filter archives by since_ts if provided.
+    if since_ts is not None:
+        since_dt = datetime.fromtimestamp(since_ts / 1000, tz=timezone.utc)
+        since_ym = (since_dt.year, since_dt.month)
+        archive_urls = [
+            url for url in archive_urls
+            if _parse_archive_ym(url) >= since_ym
+        ]
+
+    # Iterate newest → oldest, collecting PGN text up to max_games.
+    pgn_parts: list[str] = []
+    collected = 0
+
+    for url in reversed(archive_urls):
+        if collected >= max_games:
+            break
+        try:
+            resp = _chesscom_get_with_backoff(session, url)
+            games = resp.json().get("games", [])
+        except requests.RequestException as exc:
+            print(f"[fetch]  Warning: skipping {url}: {exc}", flush=True)
+            continue
+
+        for game in games:
+            if collected >= max_games:
+                break
+            # Only standard chess.
+            if game.get("rules") != "chess":
+                continue
+            # Filter by time class.
+            if game.get("time_class", "").lower() not in speeds_set:
+                continue
+            # Filter by color (case-insensitive).
+            side_obj = game.get(color, {})
+            if side_obj.get("username", "").lower() != canonical.lower():
+                continue
+            pgn = game.get("pgn", "")
+            if pgn:
+                pgn_parts.append(pgn)
+                collected += 1
+
+    session.close()
+    return "\n\n".join(pgn_parts)
+
+
+def _parse_archive_ym(url: str) -> tuple[int, int]:
+    """Extract (year, month) from a Chess.com archive URL."""
+    parts = url.rstrip("/").split("/")
+    try:
+        return int(parts[-2]), int(parts[-1])
+    except (ValueError, IndexError):
+        return (0, 0)
+
+
+def _chesscom_get_with_backoff(
+    session: requests.Session,
+    url: str,
+    max_retries: int = 5,
+) -> requests.Response:
+    """GET with exponential backoff on 429."""
+    for attempt in range(max_retries):
+        resp = session.get(url, timeout=30)
+        if resp.status_code == 429:
+            time.sleep(2 ** attempt)
+            continue
+        resp.raise_for_status()
+        return resp
+    raise RuntimeError(f"Rate-limited after {max_retries} retries: {url}")
 
 
 # ---------------------------------------------------------------------------
@@ -399,8 +593,8 @@ def _merge_payloads(
 # ---------------------------------------------------------------------------
 
 
-def _backend_key(username: str, color: str, speeds: str) -> str:
-    return f"lichess_player_{username.lower()}_{color}_{speeds}"
+def _backend_key(username: str, color: str, speeds: str, platform: str = "lichess") -> str:
+    return f"{platform}_player_{username.lower()}_{color}_{speeds}"
 
 
 def _write_fetch_meta(cache: Cache, backend: str) -> None:
@@ -417,6 +611,7 @@ def import_pgn_player(
     cache: Cache,
     speeds: str = "blitz,rapid,classical",
     max_plies: int = 30,
+    platform: str = "lichess",
     verbose: bool = True,
 ) -> int:
     """Index games from a local PGN file into the player cache.
@@ -441,7 +636,7 @@ def import_pgn_player(
             print("[import] No positions extracted.")
         return 0
 
-    backend = _backend_key(username, color, speeds)
+    backend = _backend_key(username, color, speeds, platform=platform)
     if verbose:
         print(
             f"[import] Writing {len(book):,} positions to cache …",

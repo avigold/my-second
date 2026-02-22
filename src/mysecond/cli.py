@@ -22,7 +22,8 @@ from .cache import Cache
 from .engine import find_stockfish
 from .export import export_pgn
 from .fetcher import _DEFAULT_DB as _FETCH_DB
-from .fetcher import fetch_player_games, import_pgn_player, last_fetch_ts
+from .fetcher import fetch_player_games, fetch_player_games_chesscom, import_pgn_player, last_fetch_ts
+from .habits import analyze_habits, export_habits_pgn
 from .score import score_novelty
 from .search import SearchConfig, find_novelties
 
@@ -183,18 +184,34 @@ def main() -> None:
     help="Minimum opponent games for a move to count as 'their line'.",
 )
 @click.option(
+    "--player-platform",
+    "player_platform",
+    default="lichess",
+    show_default=True,
+    type=click.Choice(["lichess", "chesscom"]),
+    help="Platform the player's games were fetched from.",
+)
+@click.option(
+    "--opponent-platform",
+    "opponent_platform",
+    default="lichess",
+    show_default=True,
+    type=click.Choice(["lichess", "chesscom"]),
+    help="Platform the opponent's games were fetched from.",
+)
+@click.option(
     "--player-speeds",
     "player_speeds",
     default="blitz,rapid,classical",
     show_default=True,
-    help="Lichess time controls to include for the player.",
+    help="Time controls to include for the player.",
 )
 @click.option(
     "--opponent-speeds",
     "opponent_speeds",
     default="blitz,rapid,classical",
     show_default=True,
-    help="Lichess time controls to include for the opponent.",
+    help="Time controls to include for the opponent.",
 )
 @click.option(
     "--local-only/--no-local-only",
@@ -226,6 +243,8 @@ def search_cmd(
     opponent_name: str | None,
     min_player_games: int,
     min_opponent_games: int,
+    player_platform: str,
+    opponent_platform: str,
     player_speeds: str,
     opponent_speeds: str,
     player_local_only: bool | None,
@@ -251,9 +270,9 @@ def search_cmd(
     click.echo(f"  FEN:                {fen}")
     click.echo(f"  Side:               {side}")
     if player_name:
-        click.echo(f"  Player:             {player_name} (as {side})")
+        click.echo(f"  Player:             {player_name} (as {side}, {player_platform})")
     if opponent_name:
-        click.echo(f"  Opponent:           {opponent_name}")
+        click.echo(f"  Opponent:           {opponent_name} ({opponent_platform})")
     click.echo(f"  Max theory depth:   {plies} plies")
     click.echo(f"  Engine candidates:  {beam} per position")
     click.echo(f"  Min book games:     {min_book_games}")
@@ -298,6 +317,8 @@ def search_cmd(
         opponent_name=opponent_name,
         min_player_games=min_player_games,
         min_opponent_games=min_opponent_games,
+        player_platform=player_platform,
+        opponent_platform=opponent_platform,
         player_speeds=player_speeds,
         opponent_speeds=opponent_speeds,
         player_local_only=effective_local_only,
@@ -366,7 +387,7 @@ def search_cmd(
 @click.option(
     "--username",
     required=True,
-    help="Lichess username to fetch games for.",
+    help="Player username (Lichess or Chess.com depending on --platform).",
 )
 @click.option(
     "--color",
@@ -375,10 +396,24 @@ def search_cmd(
     help="Fetch games where the player was this colour.",
 )
 @click.option(
+    "--platform",
+    default="lichess",
+    show_default=True,
+    type=click.Choice(["lichess", "chesscom"]),
+    help=(
+        "Platform to fetch from. "
+        "Note: Chess.com uses blitz/rapid/bullet/daily — 'classical' will not match."
+    ),
+)
+@click.option(
     "--speeds",
     default="blitz,rapid,classical",
     show_default=True,
-    help="Comma-separated Lichess time controls to include.",
+    help=(
+        "Comma-separated time controls to include. "
+        "Lichess: bullet,blitz,rapid,classical. "
+        "Chess.com: bullet,blitz,rapid,daily (no classical)."
+    ),
 )
 @click.option(
     "--max-games",
@@ -414,6 +449,7 @@ def search_cmd(
 def fetch_cmd(
     username: str,
     color: str,
+    platform: str,
     speeds: str,
     max_games: int,
     max_plies: int,
@@ -424,21 +460,19 @@ def fetch_cmd(
 
     \b
     Examples:
-      # Full fetch (replaces any existing cache for this player/colour):
+      # Lichess (default):
       mysecond fetch-player-games --username GothamChess --color white
+
+      # Chess.com:
+      mysecond fetch-player-games --username Hikaru --platform chesscom \\
+          --color white --speeds blitz,rapid
 
       # Incremental update (merge new games into existing cache):
       mysecond fetch-player-games --username GothamChess --color white \\
           --since 2024-01-01
 
-      # Full preparation workflow:
-      mysecond fetch-player-games --username GothamChess   --color white
-      mysecond fetch-player-games --username im_eric_rosen --color black
-      mysecond search --player GothamChess --opponent im_eric_rosen --side white ...
-
-    After fetching, 'mysecond search' reads repertoire data from the local
-    cache instead of making HTTP requests to the Lichess /player endpoint.
-    This makes the theory walk orders of magnitude faster.
+    After fetching, 'mysecond search --player <username>' reads repertoire
+    data from the local cache instead of making HTTP requests.
     """
     since_ts: int | None = None
     if since_date is not None:
@@ -455,7 +489,7 @@ def fetch_cmd(
     db = Path(db_path)
     with Cache(db) as cache:
         # Show last fetch time if available.
-        last_ts = last_fetch_ts(username, color, speeds, cache)
+        last_ts = last_fetch_ts(username, color, speeds, cache, platform=platform)
         if last_ts:
             last_dt = datetime.fromtimestamp(last_ts / 1000, tz=timezone.utc)
             click.echo(
@@ -467,16 +501,28 @@ def fetch_cmd(
                     "[fetch] Tip: pass --since <YYYY-MM-DD> for an incremental update."
                 )
 
-        count = fetch_player_games(
-            username=username,
-            color=color,
-            cache=cache,
-            speeds=speeds,
-            max_plies=max_plies,
-            max_games=max_games,
-            since_ts=since_ts,
-            verbose=True,
-        )
+        if platform == "chesscom":
+            count = fetch_player_games_chesscom(
+                username=username,
+                color=color,
+                cache=cache,
+                speeds=speeds,
+                max_plies=max_plies,
+                max_games=max_games,
+                since_ts=since_ts,
+                verbose=True,
+            )
+        else:
+            count = fetch_player_games(
+                username=username,
+                color=color,
+                cache=cache,
+                speeds=speeds,
+                max_plies=max_plies,
+                max_games=max_games,
+                since_ts=since_ts,
+                verbose=True,
+            )
 
     if count == 0:
         sys.exit(1)
@@ -561,3 +607,141 @@ def import_pgn_cmd(
     if count == 0:
         click.echo("[import] Warning: no positions were indexed.", err=True)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# analyze-habits
+# ---------------------------------------------------------------------------
+
+
+@main.command("analyze-habits")
+@click.option("--username", required=True, help="Player username.")
+@click.option(
+    "--color",
+    required=True,
+    type=click.Choice(["white", "black"]),
+    help="Side the player was playing.",
+)
+@click.option(
+    "--speeds",
+    default="blitz,rapid,classical",
+    show_default=True,
+    help="Time controls — must match the --speeds used when fetching games.",
+)
+@click.option(
+    "--min-games",
+    "min_games",
+    default=5,
+    show_default=True,
+    help="Minimum times the player must have reached a position.",
+)
+@click.option(
+    "--max-positions",
+    "max_positions",
+    default=50,
+    show_default=True,
+    help="Maximum number of habit inaccuracies to report.",
+)
+@click.option(
+    "--min-eval-gap",
+    "min_eval_gap",
+    default=25,
+    show_default=True,
+    help="Minimum centipawn gap (best move vs player's move) to flag an inaccuracy.",
+)
+@click.option(
+    "--depth",
+    default=20,
+    show_default=True,
+    help="Stockfish search depth per position.",
+)
+@click.option(
+    "--out",
+    "out_path",
+    default="habits.pgn",
+    show_default=True,
+    help="Output PGN file.",
+)
+@click.option(
+    "--db",
+    "db_path",
+    default=str(_FETCH_DB),
+    show_default=True,
+    help="Path to the SQLite cache database.",
+)
+def analyze_habits_cmd(
+    username: str,
+    color: str,
+    speeds: str,
+    min_games: int,
+    max_positions: int,
+    min_eval_gap: int,
+    depth: int,
+    out_path: str,
+    db_path: str,
+) -> None:
+    """Find positions where a player habitually plays a suboptimal move.
+
+    Scans the player's cached opening data, identifies positions they reach
+    frequently where they consistently choose a non-optimal move, and exports
+    an annotated PGN for ChessBase import.
+
+    \b
+    Example:
+      # First fetch the player's games, then analyse:
+      mysecond fetch-player-games --username Hikaru --platform chesscom \\
+          --color white --speeds blitz,rapid
+      mysecond analyze-habits --username Hikaru --color white \\
+          --speeds blitz,rapid --min-games 10
+
+    The output PGN shows each problem position with the player's habitual move
+    marked ?! or ? and a variation showing the engine's recommendation.
+    """
+    try:
+        engine_path = find_stockfish()
+        click.echo(f"[habits] Engine: {engine_path}")
+    except FileNotFoundError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    output = Path(out_path)
+    db = Path(db_path)
+
+    click.echo(f"[habits] Analysing habits for {username} ({color}, {speeds})")
+    click.echo(f"  Min games: {min_games}  Max positions: {max_positions}  "
+               f"Min eval gap: {min_eval_gap}cp  Depth: {depth}")
+
+    with Cache(db) as cache:
+        habits = analyze_habits(
+            username=username,
+            color=color,
+            cache=cache,
+            engine_path=engine_path,
+            speeds=speeds,
+            min_games=min_games,
+            max_positions=max_positions,
+            min_eval_gap=min_eval_gap,
+            depth=depth,
+            verbose=True,
+        )
+
+    if not habits:
+        click.echo(
+            "[habits] No habit inaccuracies found.\n"
+            "  Try: --min-games lower, --min-eval-gap lower, "
+            "or ensure you have fetched enough games."
+        )
+        sys.exit(0)
+
+    click.echo(f"[habits] Exporting {len(habits)} inaccuracies → {output}")
+    export_habits_pgn(habits, output, username, color)
+
+    click.echo("\n[habits] Top 5 habit inaccuracies:")
+    for i, h in enumerate(habits[:5], 1):
+        click.echo(
+            f"  {i}. {h.player_move_san} → {h.best_move_san}  "
+            f"gap={h.eval_gap_cp:+.0f}cp  "
+            f"freq={h.total_games}  score={h.score:.1f}"
+        )
+
+    click.echo("\n[habits] Done.")

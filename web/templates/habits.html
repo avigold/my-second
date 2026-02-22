@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}mysecond – Analyze Habits{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">Analyze Player Habits</h1>
+<p class="text-gray-400 text-sm mb-6">
+  Scan a player's cached opening data to find positions they reach frequently
+  where they consistently choose a suboptimal move.
+  Run <strong>Fetch Games</strong> first for the player.
+</p>
+
+<form id="habits-form" data-api="/api/habits" class="space-y-5 max-w-lg">
+
+  <div class="grid grid-cols-2 gap-4">
+    <div class="col-span-2">
+      <label class="form-label">Username *</label>
+      <input name="username" class="form-input" placeholder="e.g. Hikaru" required>
+    </div>
+    <div>
+      <label class="form-label">Colour *</label>
+      <select name="color" class="form-input" required>
+        <option value="white">White</option>
+        <option value="black">Black</option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label">Time Controls</label>
+      <input name="speeds" class="form-input" value="blitz,rapid,classical"
+             placeholder="blitz,rapid,classical">
+      <p class="text-xs text-gray-500 mt-1">Must match what was used when fetching games.</p>
+    </div>
+  </div>
+
+  <details class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <summary class="text-sm font-medium text-gray-300">Advanced Parameters</summary>
+    <div class="mt-3 grid grid-cols-2 gap-4">
+      <div>
+        <label class="form-label">Min Games at Position</label>
+        <input name="min_games" type="number" class="form-input" value="5">
+        <p class="text-xs text-gray-500 mt-1">Player must have reached the position at least this many times.</p>
+      </div>
+      <div>
+        <label class="form-label">Min Eval Gap (centipawns)</label>
+        <input name="min_eval_gap" type="number" class="form-input" value="25">
+        <p class="text-xs text-gray-500 mt-1">Minimum gap between best move and player's move to flag as inaccuracy.</p>
+      </div>
+      <div>
+        <label class="form-label">Max Positions to Report</label>
+        <input name="max_positions" type="number" class="form-input" value="50">
+      </div>
+      <div>
+        <label class="form-label">Engine Depth</label>
+        <input name="depth" type="number" class="form-input" value="20">
+      </div>
+    </div>
+  </details>
+
+  <div id="error-msg" class="text-red-400 text-sm hidden"></div>
+
+  <button type="submit" class="btn-primary" id="submit-btn">
+    Analyze Habits
+  </button>
+</form>
+{% endblock %}

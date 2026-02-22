@@ -58,6 +58,14 @@ class Cache:
         )
         self._conn.commit()
 
+    def scan_backend(self, backend: str) -> list[tuple[str, dict[str, Any]]]:
+        """Return all (fen, payload) pairs stored for *backend*."""
+        rows = self._conn.execute(
+            "SELECT fen, payload FROM explorer_cache WHERE backend = ?",
+            (backend,),
+        ).fetchall()
+        return [(row[0], json.loads(row[1])) for row in rows]
+
     def close(self) -> None:
         self._conn.close()
 

@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}mysecond – Habits Browser{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <h1 class="text-2xl font-bold">Habit Inaccuracies</h1>
+    <p class="text-gray-500 text-xs mt-0.5">
+      {{ job.params.username }} / {{ job.params.color }}
+      {% if job.params.speeds %} — {{ job.params.speeds }}{% endif %}
+    </p>
+  </div>
+  <div class="flex gap-2">
+    <a href="/api/jobs/{{ job_id }}/download" class="btn-secondary text-sm" download>↓ Download PGN</a>
+    <a href="/jobs/{{ job_id }}" class="btn-secondary text-sm">← Job</a>
+  </div>
+</div>
+
+<div id="loading" class="text-gray-500 text-sm">Loading…</div>
+
+<!-- Two-panel layout, hidden until data loads -->
+<div id="browser" class="hidden flex gap-4" style="height: calc(100vh - 160px);">
+
+  <!-- Left: ranked list -->
+  <div class="w-72 shrink-0 overflow-y-auto space-y-1 pr-1" id="habit-list"></div>
+
+  <!-- Right: detail panel -->
+  <div class="flex-1 overflow-y-auto bg-gray-900 border border-gray-800 rounded-lg p-5"
+       id="detail-panel">
+    <p class="text-gray-500 text-sm">Select a position on the left.</p>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const JOB_ID = {{ job_id | tojson }};
+
+function evalColor(gap) {
+  if (gap >= 75) return '#f87171';   // red — mistake
+  if (gap >= 25) return '#fbbf24';   // amber — inaccuracy
+  return '#9ca3af';
+}
+
+function nagLabel(gap) {
+  return gap >= 75 ? '?' : '?!';
+}
+
+function lichessLink(fen) {
+  return `https://lichess.org/analysis/${encodeURIComponent(fen)}`;
+}
+
+function renderDetail(h) {
+  const gap = (h.eval_gap_cp >= 0 ? '+' : '') + h.eval_gap_cp.toFixed(0);
+  const playerEval = (h.player_eval_cp / 100).toFixed(2);
+  const bestEval   = (h.eval_cp / 100).toFixed(2);
+  const nag = nagLabel(h.eval_gap_cp);
+
+  return `
+    <div class="space-y-4">
+      <div class="flex items-start justify-between">
+        <div>
+          <span class="text-xs text-gray-500 uppercase tracking-wider">Rank #${h.rank}</span>
+          <p class="text-lg font-bold text-amber-400 mt-0.5">
+            Score: ${h.score.toFixed(1)}
+          </p>
+        </div>
+        <a href="${lichessLink(h.fen)}" target="_blank"
+           class="btn-secondary text-xs">Open in Lichess ↗</a>
+      </div>
+
+      <!-- Move comparison -->
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-gray-800 rounded-lg p-3 border border-red-900">
+          <p class="text-xs text-gray-500 uppercase mb-1">Player's Move ${nag}</p>
+          <p class="text-xl font-mono font-bold text-red-400">${h.player_move_san}</p>
+          <p class="text-xs text-gray-400 mt-1">eval: ${playerEval >= 0 ? '+' : ''}${playerEval}</p>
+          <p class="text-xs text-gray-500">${h.total_games} games at position</p>
+        </div>
+        <div class="bg-gray-800 rounded-lg p-3 border border-green-900">
+          <p class="text-xs text-gray-500 uppercase mb-1">Engine Best ✓</p>
+          <p class="text-xl font-mono font-bold text-green-400">${h.best_move_san}</p>
+          <p class="text-xs text-gray-400 mt-1">eval: ${bestEval >= 0 ? '+' : ''}${bestEval}</p>
+          <p class="text-xs text-gray-500" style="color:${evalColor(h.eval_gap_cp)};">
+            gap: ${gap}cp
+          </p>
+        </div>
+      </div>
+
+      <!-- FEN -->
+      <div>
+        <p class="text-xs text-gray-600 uppercase tracking-wider mb-1">Position (FEN)</p>
+        <code class="text-xs text-gray-400 break-all leading-relaxed">${h.fen}</code>
+      </div>
+
+      <!-- Stats row -->
+      <div class="grid grid-cols-3 gap-3 text-center">
+        <div class="bg-gray-800 rounded p-2">
+          <p class="text-xs text-gray-500">Eval Gap</p>
+          <p class="font-mono font-bold" style="color:${evalColor(h.eval_gap_cp)};">${gap}cp</p>
+        </div>
+        <div class="bg-gray-800 rounded p-2">
+          <p class="text-xs text-gray-500">Frequency</p>
+          <p class="font-mono font-bold text-gray-200">${h.total_games}×</p>
+        </div>
+        <div class="bg-gray-800 rounded p-2">
+          <p class="text-xs text-gray-500">Score</p>
+          <p class="font-mono font-bold text-amber-400">${h.score.toFixed(1)}</p>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderList(habits) {
+  const list = document.getElementById('habit-list');
+  list.innerHTML = habits.map((h, i) => {
+    const gap = (h.eval_gap_cp >= 0 ? '+' : '') + h.eval_gap_cp.toFixed(0);
+    const nag = nagLabel(h.eval_gap_cp);
+    return `
+      <button onclick="selectHabit(${i})" id="habit-btn-${i}"
+              class="w-full text-left bg-gray-900 border border-gray-800 rounded-lg px-3 py-2
+                     hover:border-amber-700 transition-colors">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-gray-600">#${h.rank}</span>
+          <span class="text-xs font-mono" style="color:${evalColor(h.eval_gap_cp)};">${gap}cp</span>
+        </div>
+        <div class="flex items-center gap-2 mt-0.5">
+          <span class="font-mono font-bold text-red-400">${h.player_move_san}${nag}</span>
+          <span class="text-gray-600 text-xs">→</span>
+          <span class="font-mono font-bold text-green-400">${h.best_move_san}</span>
+        </div>
+        <p class="text-xs text-gray-600 mt-0.5">${h.total_games}× — score ${h.score.toFixed(1)}</p>
+      </button>`;
+  }).join('');
+}
+
+let allHabits = [];
+let selectedIdx = -1;
+
+function selectHabit(i) {
+  // Deselect previous
+  if (selectedIdx >= 0) {
+    const prev = document.getElementById(`habit-btn-${selectedIdx}`);
+    if (prev) prev.classList.remove('border-amber-500');
+  }
+  selectedIdx = i;
+  const btn = document.getElementById(`habit-btn-${i}`);
+  if (btn) btn.classList.add('border-amber-500');
+
+  document.getElementById('detail-panel').innerHTML = renderDetail(allHabits[i]);
+  btn.scrollIntoView({ block: 'nearest' });
+}
+
+fetch(`/api/jobs/${JOB_ID}/habits`)
+  .then(r => r.json())
+  .then(data => {
+    document.getElementById('loading').style.display = 'none';
+    if (!data.length) {
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('loading').textContent = 'No habit inaccuracies found.';
+      return;
+    }
+    allHabits = data;
+    document.getElementById('browser').classList.remove('hidden');
+    renderList(data);
+    selectHabit(0);
+  })
+  .catch(err => {
+    document.getElementById('loading').textContent = 'Failed to load habits data: ' + err.message;
+  });
+</script>
+{% endblock %}

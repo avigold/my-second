@@ -6,7 +6,11 @@
   <div>
     <div class="flex items-center gap-3 mb-1">
       <h1 class="text-2xl font-bold">
-        {{ "Fetch Games" if job.command == "fetch" else "Search Novelties" }}
+        {% if job.command == "fetch" %}Fetch Games
+        {% elif job.command == "search" %}Search Novelties
+        {% elif job.command == "habits" %}Analyze Habits
+        {% elif job.command == "import" %}Import PGN
+        {% else %}{{ job.command }}{% endif %}
       </h1>
       <span id="status-badge"
             class="status-{{ job.status }} text-xs font-mono uppercase border border-current px-2 py-0.5 rounded">
@@ -23,6 +27,15 @@
        id="browse-btn">
       Browse Novelties
     </a>
+    {% endif %}
+    {% if job.command == 'habits' %}
+    <a href="/jobs/{{ job.id }}/habits-browser"
+       class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
+       id="browse-btn">
+      Browse Habits
+    </a>
+    {% endif %}
+    {% if job.command in ('search', 'habits') %}
     <a id="download-btn"
        href="/api/jobs/{{ job.id }}/download"
        class="btn-primary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
@@ -46,6 +59,15 @@
      class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
   <p class="text-gray-400 text-xs uppercase tracking-wider font-semibold mb-3">Novelties Found</p>
   <div id="summary-body" class="text-sm text-gray-500">Loading…</div>
+</div>
+{% endif %}
+
+<!-- Habits summary (habits jobs only; populated by JS) -->
+{% if job.command == 'habits' %}
+<div id="habits-summary" style="display:none"
+     class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-4">
+  <p class="text-gray-400 text-xs uppercase tracking-wider font-semibold mb-3">Habit Inaccuracies Found</p>
+  <div id="habits-summary-body" class="text-sm text-gray-500">Loading…</div>
 </div>
 {% endif %}
 
@@ -89,7 +111,10 @@ function markDone(status) {
   if (status === 'done' && dlBtn) dlBtn.classList.remove('hidden');
   const browseBtn = document.getElementById('browse-btn');
   if (status === 'done' && browseBtn) browseBtn.classList.remove('hidden');
-  if (status === 'done') loadNoveltySummary();
+  if (status === 'done') {
+    loadNoveltySummary();
+    loadHabitsSummary();
+  }
 }
 
 function loadNoveltySummary() {
@@ -150,8 +175,62 @@ function loadNoveltySummary() {
     });
 }
 
+function loadHabitsSummary() {
+  const summaryDiv = document.getElementById('habits-summary');
+  if (!summaryDiv) return;
+  summaryDiv.style.display = 'block';
+  fetch(`/api/jobs/${JOB_ID}/habits`)
+    .then(r => r.json())
+    .then(data => {
+      const body = document.getElementById('habits-summary-body');
+      if (!data.length) {
+        body.textContent = 'No habit inaccuracies found.';
+        return;
+      }
+      function gapColor(gap) {
+        return gap >= 75 ? '#f87171' : gap >= 25 ? '#fbbf24' : '#9ca3af';
+      }
+      body.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-size:10px;">
+              <th style="padding:3px 8px;text-align:left;">#</th>
+              <th style="padding:3px 8px;text-align:left;">Player's Move</th>
+              <th style="padding:3px 8px;text-align:left;">Best Move</th>
+              <th style="padding:3px 8px;text-align:right;">Gap</th>
+              <th style="padding:3px 8px;text-align:right;">Freq</th>
+              <th style="padding:3px 8px;text-align:right;">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.slice(0, 10).map(h => `
+              <tr style="border-top:1px solid #1f2937;">
+                <td style="padding:4px 8px;color:#6b7280;">${h.rank}</td>
+                <td style="padding:4px 8px;font-family:monospace;font-weight:600;color:#f87171;">
+                  ${h.player_move_san}${h.eval_gap_cp >= 75 ? '?' : '?!'}
+                </td>
+                <td style="padding:4px 8px;font-family:monospace;color:#4ade80;">${h.best_move_san}</td>
+                <td style="padding:4px 8px;text-align:right;font-family:monospace;color:${gapColor(h.eval_gap_cp)};">
+                  ${h.eval_gap_cp >= 0 ? '+' : ''}${h.eval_gap_cp.toFixed(0)}cp
+                </td>
+                <td style="padding:4px 8px;text-align:right;color:#9ca3af;">${h.total_games}×</td>
+                <td style="padding:4px 8px;text-align:right;color:#fbbf24;">${h.score.toFixed(1)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+        ${data.length > 10 ? `<p style="color:#6b7280;font-size:11px;margin-top:6px;padding:0 8px;">… and ${data.length - 10} more. <a href="/jobs/${JOB_ID}/habits-browser" style="color:#fbbf24;">Browse all →</a></p>` : ''}`;
+    })
+    .catch(() => {
+      const body = document.getElementById('habits-summary-body');
+      if (body) body.textContent = 'Could not load habits data.';
+    });
+}
+
 // Load summary immediately if job is already done.
-if (JOB_STATUS === 'done') loadNoveltySummary();
+if (JOB_STATUS === 'done') {
+  loadNoveltySummary();
+  loadHabitsSummary();
+}
 
 // Connect SSE only if job is/was running.
 if (JOB_STATUS === 'running') {

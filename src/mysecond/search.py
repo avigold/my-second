@@ -99,6 +99,8 @@ class SearchConfig:
     min_opponent_games: int = 3
     player_speeds: str = "blitz,rapid,classical"
     opponent_speeds: str = "blitz,rapid,classical"
+    player_platform: str = "lichess"
+    opponent_platform: str = "lichess"
     player_local_only: bool = False
 
 
@@ -161,6 +163,7 @@ def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
         player_ctx = PlayerExplorer(
             config.player_name, player_color, Cache(_DEFAULT_DB),
             speeds=config.player_speeds,
+            platform=config.player_platform,
         )
     else:
         player_ctx = nullcontext()
@@ -169,6 +172,7 @@ def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
         opponent_ctx = PlayerExplorer(
             config.opponent_name, opponent_color, Cache(_DEFAULT_DB),
             speeds=config.opponent_speeds,
+            platform=config.opponent_platform,
         )
     else:
         opponent_ctx = nullcontext()

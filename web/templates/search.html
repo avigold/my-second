@@ -41,20 +41,34 @@
     </p>
     <div class="grid grid-cols-2 gap-4">
       <div>
-        <label class="form-label">Player (Lichess username)</label>
-        <input name="player" class="form-input" placeholder="e.g. Alireza2003">
+        <label class="form-label">Player Username</label>
+        <input name="player" id="player-input" class="form-input" placeholder="e.g. Alireza2003">
       </div>
       <div>
-        <label class="form-label">Opponent (Lichess username)</label>
-        <input name="opponent" class="form-input" placeholder="e.g. DrNykterstein">
+        <label class="form-label">Opponent Username</label>
+        <input name="opponent" id="opponent-input" class="form-input" placeholder="e.g. DrNykterstein">
+      </div>
+      <div>
+        <label class="form-label">Player Platform</label>
+        <select name="player_platform" id="player-platform" class="form-input">
+          <option value="lichess">Lichess</option>
+          <option value="chesscom">Chess.com</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Opponent Platform</label>
+        <select name="opponent_platform" id="opponent-platform" class="form-input">
+          <option value="lichess">Lichess</option>
+          <option value="chesscom">Chess.com</option>
+        </select>
       </div>
       <div>
         <label class="form-label">Player Time Controls</label>
-        <input name="player_speeds" class="form-input" value="blitz,rapid,classical">
+        <input name="player_speeds" id="player-speeds" class="form-input" value="blitz,rapid,classical">
       </div>
       <div>
         <label class="form-label">Opponent Time Controls</label>
-        <input name="opponent_speeds" class="form-input" value="blitz,rapid,classical">
+        <input name="opponent_speeds" id="opponent-speeds" class="form-input" value="blitz,rapid,classical">
       </div>
       <div>
         <label class="form-label">Min Player Games per Move</label>
@@ -140,6 +154,28 @@
 document.getElementById('reset-fen').addEventListener('click', () => {
   document.getElementById('fen-input').value =
     'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+});
+
+function updateSpeedsForPlatform(platformSelect, speedsInput, inputEl) {
+  if (platformSelect.value === 'chesscom') {
+    speedsInput.value = 'blitz,rapid';
+    inputEl.placeholder = 'e.g. Hikaru';
+  } else {
+    speedsInput.value = 'blitz,rapid,classical';
+    inputEl.placeholder = platformSelect.id === 'player-platform'
+      ? 'e.g. Alireza2003' : 'e.g. DrNykterstein';
+  }
+}
+
+document.getElementById('player-platform').addEventListener('change', function() {
+  updateSpeedsForPlatform(this,
+    document.getElementById('player-speeds'),
+    document.getElementById('player-input'));
+});
+document.getElementById('opponent-platform').addEventListener('change', function() {
+  updateSpeedsForPlatform(this,
+    document.getElementById('opponent-speeds'),
+    document.getElementById('opponent-input'));
 });
 </script>
 {% endblock %}

@@ -6,6 +6,7 @@
   <h1 class="text-2xl font-bold">Job History</h1>
   <div class="flex gap-3">
     <a href="/fetch" class="btn-secondary">Fetch Games</a>
+    <a href="/habits" class="btn-secondary">Analyze Habits</a>
     <a href="/search" class="btn-primary">Search Novelties</a>
   </div>
 </div>
@@ -30,10 +31,13 @@ async function loadJobs() {
   el.innerHTML = jobs.map(j => {
     const badge = `<span class="status-${j.status} text-xs font-mono uppercase">${j.status}</span>`;
     const time = new Date(j.started_at).toLocaleString();
+    const platform = j.params.platform ? ` (${j.params.platform})` : '';
     const params = j.command === 'fetch'
-      ? `${j.params.username} / ${j.params.color}`
+      ? `${j.params.username}${platform} / ${j.params.color}`
       : j.command === 'import'
       ? `${j.params.username} / ${j.params.color} — ${j.params.filename || 'PGN file'}`
+      : j.command === 'habits'
+      ? `${j.params.username} / ${j.params.color} — habit analysis`
       : `${j.params.side} | player=${j.params.player || '—'} opp=${j.params.opponent || '—'}`;
     const download = j.status === 'done' && j.out_path
       ? `<a href="/api/jobs/${j.id}/download" class="text-amber-400 text-xs hover:underline ml-2">↓ PGN</a>`
