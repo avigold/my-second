@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     started_at   TEXT NOT NULL,
     finished_at  TEXT,
     out_path     TEXT,
-    exit_code    INTEGER
+    exit_code    INTEGER,
+    log_text     TEXT
 );
 """
 
@@ -134,15 +135,20 @@ class JobRegistry:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(_SCHEMA)
+            # Migration: add log_text column for databases created before this feature.
+            try:
+                conn.execute("ALTER TABLE jobs ADD COLUMN log_text TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     def _load_existing(self) -> None:
         """Load historical jobs from DB so they appear on the dashboard."""
         with sqlite3.connect(self._db_path) as conn:
             rows = conn.execute(
-                "SELECT id, command, params_json, status, started_at, finished_at, out_path, exit_code FROM jobs"
+                "SELECT id, command, params_json, status, started_at, finished_at, out_path, exit_code, log_text FROM jobs"
             ).fetchall()
         for row in rows:
-            job_id, command, params_json, status, started_at, finished_at, out_path, exit_code = row
+            job_id, command, params_json, status, started_at, finished_at, out_path, exit_code, log_text = row
             # Mark any jobs that were "running" when the server last died as cancelled.
             if status == "running":
                 status = "cancelled"
@@ -155,6 +161,7 @@ class JobRegistry:
                 finished_at=datetime.fromisoformat(finished_at) if finished_at else None,
                 out_path=out_path,
                 exit_code=exit_code,
+                log_lines=log_text.splitlines() if log_text else [],
             )
             self._jobs[job_id] = job
 
@@ -162,13 +169,14 @@ class JobRegistry:
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
                 """
-                INSERT INTO jobs (id, command, params_json, status, started_at, finished_at, out_path, exit_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO jobs (id, command, params_json, status, started_at, finished_at, out_path, exit_code, log_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     status=excluded.status,
                     finished_at=excluded.finished_at,
                     out_path=excluded.out_path,
-                    exit_code=excluded.exit_code
+                    exit_code=excluded.exit_code,
+                    log_text=excluded.log_text
                 """,
                 (
                     job.id,
@@ -179,5 +187,6 @@ class JobRegistry:
                     job.finished_at.isoformat() if job.finished_at else None,
                     job.out_path,
                     job.exit_code,
+                    "\n".join(job.log_lines) if job.log_lines else None,
                 ),
             )
