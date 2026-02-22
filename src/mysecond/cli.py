@@ -611,17 +611,24 @@ def import_pgn_cmd(
 
 
 # ---------------------------------------------------------------------------
-# analyze-habits
+# analyse-habits
 # ---------------------------------------------------------------------------
 
 
-@main.command("analyze-habits")
+@main.command("analyse-habits")
 @click.option("--username", required=True, help="Player username.")
 @click.option(
     "--color",
     required=True,
     type=click.Choice(["white", "black"]),
     help="Side the player was playing.",
+)
+@click.option(
+    "--platform",
+    default="lichess",
+    show_default=True,
+    type=click.Choice(["lichess", "chesscom"]),
+    help="Platform the games were fetched from.",
 )
 @click.option(
     "--speeds",
@@ -673,6 +680,7 @@ def import_pgn_cmd(
 def analyze_habits_cmd(
     username: str,
     color: str,
+    platform: str,
     speeds: str,
     min_games: int,
     max_positions: int,
@@ -692,8 +700,8 @@ def analyze_habits_cmd(
       # First fetch the player's games, then analyse:
       mysecond fetch-player-games --username Hikaru --platform chesscom \\
           --color white --speeds blitz,rapid
-      mysecond analyze-habits --username Hikaru --color white \\
-          --speeds blitz,rapid --min-games 10
+      mysecond analyse-habits --username Hikaru --platform chesscom \\
+          --color white --speeds blitz,rapid --min-games 10
 
     The output PGN shows each problem position with the player's habitual move
     marked ?! or ? and a variation showing the engine's recommendation.
@@ -708,7 +716,7 @@ def analyze_habits_cmd(
     output = Path(out_path)
     db = Path(db_path)
 
-    click.echo(f"[habits] Analysing habits for {username} ({color}, {speeds})")
+    click.echo(f"[habits] Analysing habits for {username} ({color}, {platform}, {speeds})")
     click.echo(f"  Min games: {min_games}  Max positions: {max_positions}  "
                f"Min eval gap: {min_eval_gap}cp  Depth: {depth}")
 
@@ -719,6 +727,7 @@ def analyze_habits_cmd(
             cache=cache,
             engine_path=engine_path,
             speeds=speeds,
+            platform=platform,
             min_games=min_games,
             max_positions=max_positions,
             min_eval_gap=min_eval_gap,

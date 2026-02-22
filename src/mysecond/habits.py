@@ -64,6 +64,7 @@ def analyze_habits(
     cache: Cache,
     engine_path: Path,
     speeds: str = "blitz,rapid,classical",
+    platform: str = "lichess",
     min_games: int = 5,
     max_positions: int = 50,
     min_eval_gap: int = 25,
@@ -100,7 +101,7 @@ def analyze_habits(
     list[HabitInaccuracy]
         Sorted by score descending.
     """
-    backend = _backend_key(username, color, speeds)
+    backend = _backend_key(username, color, speeds, platform=platform)
     player_color = chess.WHITE if color == "white" else chess.BLACK
 
     if verbose:

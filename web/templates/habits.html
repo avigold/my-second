@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}mysecond – Analyze Habits{% endblock %}
+{% block title %}mysecond – Analyse Habits{% endblock %}
 
 {% block content %}
-<h1 class="text-2xl font-bold mb-2">Analyze Player Habits</h1>
+<h1 class="text-2xl font-bold mb-2">Analyse Player Habits</h1>
 <p class="text-gray-400 text-sm mb-6">
   Scan a player's cached opening data to find positions they reach frequently
   where they consistently choose a suboptimal move.
@@ -14,7 +14,7 @@
   <div class="grid grid-cols-2 gap-4">
     <div class="col-span-2">
       <label class="form-label">Username *</label>
-      <input name="username" class="form-input" placeholder="e.g. Hikaru" required>
+      <input name="username" id="username-input" class="form-input" placeholder="e.g. Hikaru" required>
     </div>
     <div>
       <label class="form-label">Colour *</label>
@@ -24,9 +24,19 @@
       </select>
     </div>
     <div>
+      <label class="form-label">Platform *</label>
+      <select name="platform" id="platform-select" class="form-input">
+        <option value="lichess">Lichess</option>
+        <option value="chesscom">Chess.com</option>
+      </select>
+    </div>
+    <div class="col-span-2">
       <label class="form-label">Time Controls</label>
-      <input name="speeds" class="form-input" value="blitz,rapid,classical"
+      <input name="speeds" id="speeds-input" class="form-input" value="blitz,rapid,classical"
              placeholder="blitz,rapid,classical">
+      <p id="speeds-hint" class="text-xs text-gray-500 mt-1 hidden">
+        Chess.com: use <code>blitz,rapid</code> — no <code>classical</code>.
+      </p>
       <p class="text-xs text-gray-500 mt-1">Must match what was used when fetching games.</p>
     </div>
   </div>
@@ -57,8 +67,29 @@
 
   <div id="error-msg" class="text-red-400 text-sm hidden"></div>
 
+  <div id="error-msg" class="text-red-400 text-sm hidden"></div>
+
   <button type="submit" class="btn-primary" id="submit-btn">
-    Analyze Habits
+    Analyse Habits
   </button>
 </form>
+
+<script>
+const platformSelect = document.getElementById('platform-select');
+const speedsInput    = document.getElementById('speeds-input');
+const speedsHint     = document.getElementById('speeds-hint');
+const usernameInput  = document.getElementById('username-input');
+
+platformSelect.addEventListener('change', () => {
+  if (platformSelect.value === 'chesscom') {
+    speedsInput.value = 'blitz,rapid';
+    speedsHint.classList.remove('hidden');
+    usernameInput.placeholder = 'e.g. Hikaru';
+  } else {
+    speedsInput.value = 'blitz,rapid,classical';
+    speedsHint.classList.add('hidden');
+    usernameInput.placeholder = 'e.g. Alireza2003';
+  }
+});
+</script>
 {% endblock %}

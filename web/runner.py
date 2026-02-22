@@ -137,11 +137,13 @@ def build_repertoire_argv(params: dict, out_path: str) -> list[str]:
 
 
 def build_habits_argv(params: dict, out_path: str) -> list[str]:
-    """Build the argv list for ``mysecond analyze-habits``."""
-    cmd = [_mysecond_bin(), "analyze-habits"]
+    """Build the argv list for ``mysecond analyse-habits``."""
+    cmd = [_mysecond_bin(), "analyse-habits"]
     cmd += ["--username", params["username"]]
     cmd += ["--color", params["color"]]
     cmd += ["--out", out_path]
+    if params.get("platform"):
+        cmd += ["--platform", params["platform"]]
     if params.get("speeds"):
         cmd += ["--speeds", params["speeds"]]
     if params.get("min_games"):
