@@ -110,6 +110,7 @@ export default function NoveltyBoard({ novelty, allNovelties, orientation, onSel
           positions={positions}
           currentPly={currentPly}
           noveltyPly={noveltyPly}
+          noveltyRank={novelty.rank}
           onSelect={setCurrentPly}
           branchMap={branchMap}
           rootFen={novelty.root_fen}
@@ -151,12 +152,16 @@ function NavBar({ currentPly, maxPly, noveltyPly, setCurrentPly }) {
 // MoveList — full game score with click-to-navigate and branch annotations
 // ---------------------------------------------------------------------------
 
-function MoveList({ positions, currentPly, noveltyPly, onSelect, branchMap, rootFen, onSelectNovelty, allNovelties }) {
+function MoveList({ positions, currentPly, noveltyPly, noveltyRank, onSelect, branchMap, rootFen, onSelectNovelty, allNovelties }) {
   const activeRef = useRef(null)
 
+  // Scroll to the active move whenever ply changes OR whenever we switch to a
+  // different novelty (noveltyRank). The latter handles the case where two
+  // novelties share the same noveltyPly — currentPly wouldn't change but the
+  // list content does, so we still need to scroll.
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [currentPly])
+  }, [currentPly, noveltyRank])
 
   // Parse root FEN for move-number and side-to-move
   const fenParts   = (rootFen || '').split(' ')
