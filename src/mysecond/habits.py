@@ -105,58 +105,66 @@ def analyze_habits(
     player_color = chess.WHITE if color == "white" else chess.BLACK
 
     if verbose:
-        print(f"[habits] Scanning cache for {username} ({color}, {speeds}) …", flush=True)
+        print(f"[habits] Scanning cache for {username} ({color}, {platform}, {speeds}) …", flush=True)
 
     all_positions = cache.scan_backend(backend)
+    # Exclude metadata entries (keys starting with _).
+    all_positions = [(f, p) for f, p in all_positions if not f.startswith("_")]
 
     if verbose:
         print(f"[habits] {len(all_positions)} cached positions found.", flush=True)
 
-    # Filter to positions with enough games and a dominant move.
-    candidates: list[tuple[str, dict[str, Any]]] = []
+    if not all_positions:
+        if verbose:
+            print(
+                "[habits] No cached data found. Ensure you have run "
+                "'fetch-player-games' with the same platform and speeds.",
+                flush=True,
+            )
+        return []
+
+    # Collect every (fen, payload, move_data) triple where the position was
+    # reached >= min_games times AND the specific move was played >= min_games
+    # times.  We check ALL qualifying moves, not just the dominant one, so
+    # secondary habits are not missed.
+    by_fen: dict[str, tuple[dict[str, Any], list[dict[str, Any]]]] = {}
+    total_pairs = 0
     for fen, payload in all_positions:
         total = payload.get("white", 0) + payload.get("draws", 0) + payload.get("black", 0)
         if total < min_games:
             continue
-        moves = payload.get("moves", [])
-        if not moves:
+        qualifying_moves = [
+            m for m in payload.get("moves", [])
+            if m.get("white", 0) + m.get("draws", 0) + m.get("black", 0) >= min_games
+        ]
+        if not qualifying_moves:
             continue
-        top_move = moves[0]
-        top_games = top_move.get("white", 0) + top_move.get("draws", 0) + top_move.get("black", 0)
-        if top_games / total < 0.40:
-            continue
-        candidates.append((fen, payload))
+        by_fen[fen] = (payload, qualifying_moves)
+        total_pairs += len(qualifying_moves)
 
     if verbose:
         print(
-            f"[habits] {len(candidates)} positions pass frequency filter "
-            f"(≥{min_games} games, dominant move ≥40%). Evaluating …",
+            f"[habits] {len(by_fen)} positions with ≥{min_games} games; "
+            f"{total_pairs} (position, move) pairs to evaluate …",
             flush=True,
         )
 
     results: list[HabitInaccuracy] = []
 
     with Engine(engine_path) as eng:
-        for i, (fen, payload) in enumerate(candidates, 1):
+        for i, (fen, (payload, qualifying_moves)) in enumerate(by_fen.items(), 1):
             total = payload.get("white", 0) + payload.get("draws", 0) + payload.get("black", 0)
-            top_move = payload["moves"][0]
-            top_games = top_move.get("white", 0) + top_move.get("draws", 0) + top_move.get("black", 0)
-            player_uci = top_move["uci"]
 
             try:
                 board = chess.Board(fen)
             except ValueError:
                 continue
 
-            # Verify it's the player's turn.
+            # Verify it's the player's turn (cache should guarantee this, but be safe).
             if board.turn != player_color:
                 continue
 
-            player_move = chess.Move.from_uci(player_uci)
-            if player_move not in board.legal_moves:
-                continue
-
-            # Engine analysis at this position.
+            # One engine call per position: finds best move and best eval.
             info = eng.analyse_single(board, depth=depth)
             if "pv" not in info or not info["pv"]:
                 continue
@@ -165,55 +173,66 @@ def analyze_habits(
             if best_move not in board.legal_moves:
                 continue
 
-            # Skip if player already plays the best move.
-            if best_move == player_move:
-                continue
-
-            # Eval after best move (from player's POV).
-            board_after_best = board.copy()
-            board_after_best.push(best_move)
-            info_best = eng.analyse_single(board_after_best, depth=depth)
-            best_cp = _cp_pov(info_best["score"], player_color)
-
-            # Eval after player's move (from player's POV).
-            board_after_player = board.copy()
-            board_after_player.push(player_move)
-            info_player = eng.analyse_single(board_after_player, depth=depth)
-            player_cp = _cp_pov(info_player["score"], player_color)
-
-            eval_gap = best_cp - player_cp
-            if eval_gap < min_eval_gap:
-                continue
-
-            score = total * eval_gap / 100
-
-            # Depth evals for display.
-            depth_evals: dict[int, str] = {}
-            for d in sorted({depth, max(8, depth - 4)}):
-                di = eng.analyse_single(board, depth=d)
-                pov = di["score"].pov(player_color)
-                cp_val = pov.score(mate_score=10_000)
-                depth_evals[d] = f"{cp_val / 100:+.2f}" if cp_val is not None else "M"
-
-            results.append(
-                HabitInaccuracy(
-                    fen=fen,
-                    total_games=total,
-                    player_move_uci=player_uci,
-                    player_move_san=board.san(player_move),
-                    player_move_games=top_games,
-                    best_move_uci=best_move.uci(),
-                    best_move_san=board.san(best_move),
-                    eval_cp=best_cp,
-                    player_eval_cp=player_cp,
-                    eval_gap_cp=eval_gap,
-                    score=score,
-                    depth_evals=depth_evals,
-                )
+            # best_cp: eval from this position following the engine's best line,
+            # from the player's POV.  Use the score returned directly from the
+            # position analysis — no need to re-evaluate after pushing best_move.
+            best_cp = float(
+                info["score"].pov(player_color).score(mate_score=10_000) or 0
             )
 
+            # Evaluate each qualifying player move and flag if suboptimal.
+            for move_data in qualifying_moves:
+                player_uci = move_data.get("uci", "")
+                try:
+                    player_move = chess.Move.from_uci(player_uci)
+                except ValueError:
+                    continue
+                if player_move not in board.legal_moves:
+                    continue
+                if player_move == best_move:
+                    continue  # player already finds the best move here
+
+                move_games = (
+                    move_data.get("white", 0)
+                    + move_data.get("draws", 0)
+                    + move_data.get("black", 0)
+                )
+
+                # Eval after the player's move (opponent to move; convert to player's POV).
+                board_after = board.copy()
+                board_after.push(player_move)
+                info_after = eng.analyse_single(board_after, depth=depth)
+                player_cp = _cp_pov(info_after["score"], player_color)
+
+                eval_gap = best_cp - player_cp
+                if eval_gap < min_eval_gap:
+                    continue
+
+                habit_score = move_games * eval_gap / 100
+
+                results.append(
+                    HabitInaccuracy(
+                        fen=fen,
+                        total_games=total,
+                        player_move_uci=player_uci,
+                        player_move_san=board.san(player_move),
+                        player_move_games=move_games,
+                        best_move_uci=best_move.uci(),
+                        best_move_san=board.san(best_move),
+                        eval_cp=best_cp,
+                        player_eval_cp=player_cp,
+                        eval_gap_cp=eval_gap,
+                        score=habit_score,
+                        depth_evals={},
+                    )
+                )
+
             if verbose and i % 10 == 0:
-                print(f"  … {i}/{len(candidates)} evaluated, {len(results)} inaccuracies so far", flush=True)
+                print(
+                    f"  … {i}/{len(by_fen)} positions evaluated, "
+                    f"{len(results)} inaccuracies so far",
+                    flush=True,
+                )
 
     results.sort(key=lambda h: -h.score)
     results = results[:max_positions]
