@@ -50,9 +50,19 @@ async function loadJobs() {
         <div class="flex items-center gap-2 shrink-0">
           ${download}
           <a href="/jobs/${j.id}" class="btn-secondary text-xs">View</a>
+          <button onclick="deleteJob('${j.id}', this)"
+                  style="background:none;border:none;cursor:pointer;color:#4b5563;font-size:18px;line-height:1;padding:2px 6px;"
+                  title="Delete job">×</button>
         </div>
       </div>`;
   }).join('');
+}
+
+async function deleteJob(jobId, btn) {
+  if (!confirm('Delete this job?')) return;
+  btn.disabled = true;
+  await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+  btn.closest('div.bg-gray-900').remove();
 }
 
 loadJobs();

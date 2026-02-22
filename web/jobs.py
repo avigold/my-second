@@ -97,6 +97,16 @@ class JobRegistry:
             jobs = list(self._jobs.values())
         return [j.to_dict() for j in sorted(jobs, key=lambda j: j.started_at, reverse=True)]
 
+    def delete(self, job_id: str) -> bool:
+        """Remove a job from memory and the database. Returns True if found."""
+        with self._lock:
+            if job_id not in self._jobs:
+                return False
+            del self._jobs[job_id]
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        return True
+
     def update_status(
         self,
         job_id: str,

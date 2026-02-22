@@ -246,6 +246,7 @@ def test_walk_uses_opponent_explorer_at_opponent_turns() -> None:
     _walk(
         board=chess.Board(),
         book_moves=[],
+        book_moves_san=[],
         config=_config(),
         eng=eng,
         explorer=masters_explorer,
@@ -334,6 +335,7 @@ def test_walk_respects_player_repertoire_for_recursion() -> None:
     _walk(
         board=chess.Board(),
         book_moves=[],
+        book_moves_san=[],
         config=_config(),
         eng=eng,
         explorer=masters_explorer,

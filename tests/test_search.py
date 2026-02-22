@@ -95,6 +95,7 @@ def test_move_with_zero_games_becomes_candidate() -> None:
     _walk(
         board=chess.Board(),
         book_moves=[],
+        book_moves_san=[],
         config=_config(engine_candidates=1, novelty_threshold=0),
         eng=eng,
         explorer=explorer,
@@ -134,6 +135,7 @@ def test_in_book_move_causes_recursion() -> None:
     _walk(
         board=chess.Board(),
         book_moves=[],
+        book_moves_san=[],
         config=_config(engine_candidates=1, novelty_threshold=0, min_book_games=5),
         eng=eng,
         explorer=explorer,
@@ -161,6 +163,7 @@ def test_novelty_threshold_respected() -> None:
     _walk(
         board=chess.Board(),
         book_moves=[],
+        book_moves_san=[],
         config=cfg,
         eng=eng,
         explorer=explorer,
@@ -190,6 +193,7 @@ def test_out_of_book_position_stops_walk() -> None:
     _walk(
         board=chess.Board(),
         book_moves=[],
+        book_moves_san=[],
         config=_config(min_book_games=10),
         eng=eng,
         explorer=explorer,
@@ -213,11 +217,11 @@ def test_visited_set_prevents_revisit() -> None:
     cfg = _config()
     board = chess.Board()
 
-    _walk(board, [], cfg, eng, explorer, pending, visited, counter)
+    _walk(board, [], [], cfg, eng, explorer, pending, visited, counter)
     first_count = counter[0]
 
     # Walking again should not visit the already-seen root.
-    _walk(board, [], cfg, eng, explorer, pending, visited, counter)
+    _walk(board, [], [], cfg, eng, explorer, pending, visited, counter)
     assert counter[0] == first_count  # no new positions visited
 
 
@@ -233,6 +237,6 @@ def test_max_positions_guard() -> None:
     cfg = _config(max_book_plies=20)
     cfg.max_positions = 1  # stop after visiting 1 position
 
-    _walk(chess.Board(), [], cfg, eng, explorer, pending, visited, counter)
+    _walk(chess.Board(), [], [], cfg, eng, explorer, pending, visited, counter)
 
     assert counter[0] <= 1

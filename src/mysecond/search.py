@@ -42,6 +42,7 @@ Phase 2 – Deep evaluation (parallel, one engine process per worker):
 from __future__ import annotations
 
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -57,6 +58,15 @@ from .models import EngineEval, NoveltyLine
 from .repertoire import PlayerExplorer
 
 _DEFAULT_DB = Path("data/cache.sqlite")
+
+# Thread-safe printing for the parallel deep-eval phase.
+_PRINT_LOCK = threading.Lock()
+
+
+def _p(*args: object, **kwargs: object) -> None:
+    """Print with flush=True and a thread-safe lock."""
+    with _PRINT_LOCK:
+        print(*args, **kwargs, flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -83,17 +93,12 @@ class SearchConfig:
     max_candidates: int = 200  # max candidates to send to deep evaluation
 
     # --- Player/opponent filtering (optional) ---
-    # Set these to a Lichess username to scope the walk to lines the player
-    # and opponent actually play, rather than all of master theory.
-    player_name: str | None = None    # Lichess username of the player we prepare for
-    opponent_name: str | None = None  # Lichess username of the opponent
-    min_player_games: int = 3         # min player games for a move to be "in repertoire"
-    min_opponent_games: int = 3       # min opponent games for a move to be "their line"
-    player_speeds: str = "blitz,rapid,classical"    # time controls for player's games
-    opponent_speeds: str = "blitz,rapid,classical"  # time controls for opponent's games
-    # When True, PlayerExplorer never makes HTTP requests; use only local cache.
-    # Always set to True after running fetch-player-games (the default when
-    # player_name/opponent_name are set from the CLI).
+    player_name: str | None = None
+    opponent_name: str | None = None
+    min_player_games: int = 3
+    min_opponent_games: int = 3
+    player_speeds: str = "blitz,rapid,classical"
+    opponent_speeds: str = "blitz,rapid,classical"
     player_local_only: bool = False
 
 
@@ -106,10 +111,36 @@ class SearchConfig:
 class _PendingNovelty:
     board: chess.Board        # position *before* the novelty move
     book_moves: list[str]     # UCI path through theory
+    book_moves_san: list[str] # SAN path through theory (for display)
     move: chess.Move          # the novelty move
     pre_novelty_games: int    # games at the position before the novelty
     post_novelty_games: int   # games after the novelty move (0 = true TN)
     quick_eval_cp: float      # perspective-corrected cp from the walk's quick eval
+
+
+# ---------------------------------------------------------------------------
+# Verbose formatting helpers
+# ---------------------------------------------------------------------------
+
+
+def _path_str(book_moves_san: list[str]) -> str:
+    """Format a SAN move list as a compact opening path string.
+
+    Example: ["e4", "e5", "Nf3", "Nc6"] → "1.e4 e5 2.Nf3 Nc6"
+    """
+    if not book_moves_san:
+        return "starting position"
+    parts: list[str] = []
+    for i, san in enumerate(book_moves_san):
+        if i % 2 == 0:
+            parts.append(f"{i // 2 + 1}.{san}")
+        else:
+            parts.append(san)
+    return " ".join(parts)
+
+
+def _cp_str(cp: float) -> str:
+    return f"{cp:+.2f}".replace("+", "+").replace("-", "−")
 
 
 # ---------------------------------------------------------------------------
@@ -120,12 +151,10 @@ class _PendingNovelty:
 def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
     """Walk theory and return deeply evaluated novelty candidates."""
 
-    # Determine colours for player/opponent explorers.
-    player_color = "white" if config.side == chess.WHITE else "black"
+    player_color   = "white" if config.side == chess.WHITE else "black"
     opponent_color = "black" if config.side == chess.WHITE else "white"
 
-    # Build optional player/opponent explorer context managers.
-    player_ctx: PlayerExplorer | nullcontext  # type: ignore[type-arg]
+    player_ctx: PlayerExplorer | nullcontext   # type: ignore[type-arg]
     opponent_ctx: PlayerExplorer | nullcontext  # type: ignore[type-arg]
 
     if config.player_name:
@@ -144,7 +173,7 @@ def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
     else:
         opponent_ctx = nullcontext()
 
-    # --- Phase 1: tree walk (sequential; one engine + one explorer) ----------
+    # --- Phase 1: tree walk --------------------------------------------------
     pending: list[_PendingNovelty] = []
     visited: set[str] = set()
     positions_visited: list[int] = [0]
@@ -157,6 +186,7 @@ def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
                         _walk(
                             board=chess.Board(config.fen),
                             book_moves=[],
+                            book_moves_san=[],
                             config=config,
                             eng=eng,
                             explorer=explorer,
@@ -170,36 +200,42 @@ def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
     if not pending:
         return []
 
-    # --- Phase 1b: prune candidates before expensive deep eval ---------------
-    # Sort by quick eval descending; keep best max_candidates.
+    # --- Phase 1b: prune candidates ------------------------------------------
+    before_prune = len(pending)
     pending.sort(key=lambda p: -p.quick_eval_cp)
     pending = pending[: config.max_candidates]
 
-    print(
-        f"[mysecond] Theory walk complete: {positions_visited[0]} positions visited, "
-        f"{len(pending)} candidates selected for deep evaluation.",
-        flush=True,
+    _p(
+        f"\n[mysecond] ── Phase 1 complete ─────────────────────────────────────\n"
+        f"  Positions visited : {positions_visited[0]}\n"
+        f"  Candidates found  : {before_prune}\n"
+        f"  After pruning     : {len(pending)}  (top by quick eval)\n"
+        f"[mysecond] ─────────────────────────────────────────────────────────"
     )
 
-    # --- Phase 2: deep evaluation (parallel) --------------------------------
+    # --- Phase 2: deep evaluation (parallel) ---------------------------------
+    _p(f"\n[mysecond] ── Phase 2: deep evaluation ({len(pending)} candidates, "
+       f"{min(config.max_workers, len(pending))} workers) ──\n")
+
     results: list[NoveltyLine] = []
     workers = min(config.max_workers, len(pending))
+    total = len(pending)
+    done_count: list[int] = [0]
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(_evaluate_candidate, p, config): p
-            for p in pending
+            executor.submit(_evaluate_candidate, p, config, i + 1, total): p
+            for i, p in enumerate(pending)
         }
         for future in as_completed(futures):
             try:
                 result = future.result()
+                with _PRINT_LOCK:
+                    done_count[0] += 1
                 if result is not None:
                     results.append(result)
             except Exception as exc:  # noqa: BLE001
-                print(
-                    f"[mysecond] Warning: evaluation failed – {exc}",
-                    file=sys.stderr,
-                )
+                _p(f"[eval]  Warning: evaluation error – {exc}", file=sys.stderr)
 
     return results
 
@@ -212,6 +248,7 @@ def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
 def _walk(
     board: chess.Board,
     book_moves: list[str],
+    book_moves_san: list[str],
     config: SearchConfig,
     eng: Engine,
     explorer: LichessExplorer,
@@ -228,19 +265,29 @@ def _walk(
     if fen in visited:
         return
     if positions_visited[0] >= config.max_positions:
+        _p(f"[walk]  Position cap reached ({config.max_positions}), stopping walk.")
         return
     if len(book_moves) >= config.max_book_plies:
         return
 
     visited.add(fen)
     positions_visited[0] += 1
+    n = positions_visited[0]
+    path = _path_str(book_moves_san)
 
     data = explorer.get_data(fen)
     if data is None or data.total < config.min_book_games:
-        return  # out of book
+        _p(f"[walk] {n:>4}  {path}  → out of book "
+           f"({data.total if data else 0} master games, min={config.min_book_games}), stopping.")
+        return
 
     if board.turn == config.side:
-        # Our turn: look for novelty moves, recurse on in-book moves.
+        # ── OUR TURN ──────────────────────────────────────────────────────────
+        turn_label = "White" if config.side == chess.WHITE else "Black"
+        _p(f"[walk] {n:>4}  {path}  "
+           f"[{turn_label} to move | {data.total:,} master games | "
+           f"asking engine for {config.engine_candidates} candidates]")
+
         quick_depth = min(config.depths)
         infos = eng.analyse_multipv(
             board,
@@ -249,48 +296,75 @@ def _walk(
             time_ms=config.time_ms,
         )
 
-        # Fetch player's own data once for this position.
-        # local_only=True means cache-miss → None → fallback to unrestricted
-        # (no live HTTP call; safe and fast after fetch-player-games).
         player_data = (
             player_explorer.get_data(fen, local_only=config.player_local_only)
             if player_explorer
             else None
         )
 
+        if config.player_name and player_data is not None:
+            _p(f"[walk]       player {config.player_name}: "
+               f"{player_data.total} games at this position")
+
         for info in infos:
             if "pv" not in info or not info["pv"]:
                 continue
             move = info["pv"][0]
+            san  = board.san(move)
 
-            # Perspective-corrected quick eval for this candidate.
-            pov = info["score"].pov(config.side)
+            pov      = info["score"].pov(config.side)
             quick_cp = float(pov.score(mate_score=10_000) or 0)
-
             post_games = data.games_for_move(move.uci())
 
             if post_games <= config.novelty_threshold:
-                # Pre-filter by min_eval now to avoid queuing bad candidates.
+                # ── NOVELTY CANDIDATE ─────────────────────────────────────
+                label = "TRUE NOVELTY" if post_games == 0 else f"rare ({post_games} master games)"
                 if quick_cp >= config.min_eval_cp:
+                    _p(f"[walk]       ★ NOVELTY  {san}  "
+                       f"post={post_games}  quick_eval={_cp_str(quick_cp)}cp  "
+                       f"[{label}]  → queued for deep eval")
                     pending.append(
                         _PendingNovelty(
                             board=board.copy(),
                             book_moves=list(book_moves),
+                            book_moves_san=list(book_moves_san),
                             move=move,
                             pre_novelty_games=data.total,
                             post_novelty_games=post_games,
                             quick_eval_cp=quick_cp,
                         )
                     )
+                else:
+                    _p(f"[walk]       ✗ novelty  {san}  "
+                       f"post={post_games}  quick_eval={_cp_str(quick_cp)}cp  "
+                       f"[eval below {config.min_eval_cp}cp threshold, skipping]")
             else:
-                # Still in book – walk deeper, but only if within player's repertoire.
+                # ── IN BOOK: consider recursing ────────────────────────────
                 if not _player_plays_move(move, player_data, config.min_player_games):
+                    player_games = (
+                        player_data.games_for_move(move.uci())  # type: ignore[union-attr]
+                        if player_data else 0
+                    )
+                    _p(f"[walk]       · skip      {san}  "
+                       f"[in book: {post_games} games | "
+                       f"{config.player_name} plays {player_games}×, "
+                       f"min={config.min_player_games}]")
                     continue
+
+                player_note = ""
+                if config.player_name and player_data is not None:
+                    pg = player_data.games_for_move(move.uci())
+                    player_note = f" | {config.player_name}: {pg}×"
+
+                _p(f"[walk]       → recurse   {san}  "
+                   f"[in book: {post_games:,} games{player_note}]")
+
                 new_board = board.copy()
                 new_board.push(move)
                 _walk(
                     new_board,
                     book_moves + [move.uci()],
+                    book_moves_san + [san],
                     config,
                     eng,
                     explorer,
@@ -301,21 +375,32 @@ def _walk(
                     opponent_explorer,
                 )
     else:
-        # Opponent's turn: follow the most popular moves.
-        # With an opponent explorer: follow the opponent's actual moves.
-        move_list = _opponent_moves(
+        # ── OPPONENT'S TURN ───────────────────────────────────────────────────
+        opp_label = "Black" if config.side == chess.WHITE else "White"
+        move_list, source = _opponent_moves_with_source(
             fen, data, opponent_explorer, config.opponent_responses,
             config.min_opponent_games, local_only=config.player_local_only,
         )
+        moves_str = "  ".join(
+            f"{board.san(chess.Move.from_uci(ms.uci))} ({ms.total}×)"
+            for ms in move_list
+            if chess.Move.from_uci(ms.uci) in board.legal_moves
+        )
+        _p(f"[walk] {n:>4}  {path}  "
+           f"[{opp_label} to move | {data.total:,} master games | "
+           f"following {source}: {moves_str or '(none)'}]")
+
         for move_stats in move_list:
             move = chess.Move.from_uci(move_stats.uci)
             if move not in board.legal_moves:
                 continue
+            san = board.san(move)
             new_board = board.copy()
             new_board.push(move)
             _walk(
                 new_board,
                 book_moves + [move.uci()],
+                book_moves_san + [san],
                 config,
                 eng,
                 explorer,
@@ -337,19 +422,8 @@ def _player_plays_move(
     player_data: object,  # ExplorerData | None
     min_games: int,
 ) -> bool:
-    """Return True if the player has played *move*, or if no player filter is active.
-
-    ``player_data`` is the per-position data from the player's own explorer.
-
-    * ``None`` → no player filter active; allow all moves.
-    * ``total < min_games`` → not enough games in this position to make a
-      reliable repertoire decision; fall back to allowing all moves rather
-      than silently blocking the entire subtree.
-    * Otherwise check whether the player has played this specific move.
-    """
     if player_data is None:
-        return True  # no player filter → allow all
-    # If the player has no meaningful data in this position, don't restrict.
+        return True
     if player_data.total < min_games:  # type: ignore[union-attr]
         return True
     return player_data.games_for_move(move.uci()) >= min_games  # type: ignore[union-attr]
@@ -357,25 +431,36 @@ def _player_plays_move(
 
 def _opponent_moves(
     fen: str,
-    masters_data: object,  # ExplorerData
+    masters_data: object,
     opponent_explorer: PlayerExplorer | None,
     n: int,
     min_games: int,
     local_only: bool = False,
 ) -> list:
-    """Return the opponent moves to follow at this position.
+    moves, _ = _opponent_moves_with_source(
+        fen, masters_data, opponent_explorer, n, min_games, local_only=local_only
+    )
+    return moves
 
-    Uses the opponent's personal explorer if available and they have enough
-    games here; otherwise falls back to the full masters database top moves.
-    """
+
+def _opponent_moves_with_source(
+    fen: str,
+    masters_data: object,
+    opponent_explorer: PlayerExplorer | None,
+    n: int,
+    min_games: int,
+    local_only: bool = False,
+) -> tuple[list, str]:
+    """Return (move_list, source_label) for opponent moves at this position."""
     if opponent_explorer is not None:
         opp_data = opponent_explorer.get_data(fen, local_only=local_only)
         if opp_data is not None and opp_data.total >= min_games:
             top = opp_data.top_moves(n)
             if top:
-                return top
-    # Fall back to full masters database.
-    return masters_data.top_moves(n)  # type: ignore[union-attr]
+                name = getattr(opponent_explorer, "_username", "opponent")
+                return top, f"{name} ({opp_data.total} games)"
+    top = masters_data.top_moves(n)  # type: ignore[union-attr]
+    return top, "masters DB"
 
 
 # ---------------------------------------------------------------------------
@@ -386,24 +471,39 @@ def _opponent_moves(
 def _evaluate_candidate(
     p: _PendingNovelty,
     config: SearchConfig,
+    candidate_num: int,
+    total_candidates: int,
 ) -> NoveltyLine | None:
     """Evaluate one novelty candidate deeply; return None if below eval floor."""
+    path = _path_str(p.book_moves_san)
+    san  = p.board.san(p.move)
+    full_line = f"{path} {san}".strip() if path != "starting position" else san
+    prefix = f"[eval] {candidate_num:>3}/{total_candidates}"
+
+    _p(f"{prefix}  ── {full_line}  "
+       f"(ply {len(p.book_moves) + 1}, pre={p.pre_novelty_games:,}, "
+       f"post={p.post_novelty_games}, quick={_cp_str(p.quick_eval_cp)}cp)")
+
     with Engine(config.engine_path) as eng:
         post_board = p.board.copy()
         post_board.push(p.move)
 
-        # Deep multi-depth evaluation.
         evals: dict[int, EngineEval] = {}
         for depth in sorted(config.depths):
-            info = eng.analyse_single(post_board, depth=depth)
+            info  = eng.analyse_single(post_board, depth=depth)
             score = info["score"]
-            evals[depth] = EngineEval(
+            ev = EngineEval(
                 depth=depth,
                 cp_white=score.white().score(mate_score=10_000),
                 mate_white=score.white().mate(),
             )
+            evals[depth] = ev
+            pov_str = ev.display() if config.side == chess.WHITE else (
+                f"{-ev.cp_white / 100:+.2f}" if ev.cp_white is not None
+                else ("M+" if (ev.mate_white or 0) < 0 else "M-") + str(abs(ev.mate_white or 0))
+            )
+            _p(f"{prefix}       depth {depth:>2}: {ev.display()}")
 
-        # Perspective-corrected mean eval.
         cp_values = [
             ev.cp_pov(config.side)
             for ev in evals.values()
@@ -414,11 +514,13 @@ def _evaluate_candidate(
         else:
             mean_cp = 10_000.0 if _any_mate_for(evals, config.side) else -10_000.0
 
-        # Final eval filter — the deep eval may differ from the quick eval.
         if mean_cp < config.min_eval_cp:
+            _p(f"{prefix}       ✗ FAILED  mean={_cp_str(mean_cp)}cp "
+               f"< min {config.min_eval_cp}cp — discarded")
             return None
 
-        # Suggested continuations from the PV at the shallowest depth.
+        _p(f"{prefix}       ✓ PASSED  mean={_cp_str(mean_cp)}cp — kept")
+
         continuations: list[str] = []
         cont_info = eng.analyse_single(post_board, depth=min(config.depths))
         if "pv" in cont_info:

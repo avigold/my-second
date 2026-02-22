@@ -220,14 +220,21 @@ def api_download(job_id: str):
 
 
 @app.delete("/api/jobs/<job_id>")
-def api_cancel(job_id: str):
+def api_delete_job(job_id: str):
     job = registry.get(job_id)
     if job is None:
         return jsonify({"error": "not found"}), 404
+    # Cancel if still running.
     if job.process is not None and job.status == "running":
         job.process.terminate()
-        registry.update_status(job_id, "cancelled")
-    return jsonify({"status": "cancelled"})
+    # Remove output file if present.
+    if job.out_path:
+        try:
+            Path(job.out_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+    registry.delete(job_id)
+    return jsonify({"status": "deleted"})
 
 
 # ---------------------------------------------------------------------------
