@@ -22,7 +22,7 @@ from .cache import Cache
 from .engine import find_stockfish
 from .export import export_pgn
 from .fetcher import _DEFAULT_DB as _FETCH_DB
-from .fetcher import fetch_player_games, last_fetch_ts
+from .fetcher import fetch_player_games, import_pgn_player, last_fetch_ts
 from .score import score_novelty
 from .search import SearchConfig, find_novelties
 
@@ -479,4 +479,85 @@ def fetch_cmd(
         )
 
     if count == 0:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# import-pgn-player
+# ---------------------------------------------------------------------------
+
+
+@main.command("import-pgn-player")
+@click.option(
+    "--pgn",
+    "pgn_path",
+    required=True,
+    help="Path to the PGN file containing the player's games.",
+)
+@click.option(
+    "--username",
+    required=True,
+    help=(
+        "Cache key to store the data under — use the same value you will "
+        "pass to 'mysecond search --player' (e.g. 'GothamChess')."
+    ),
+)
+@click.option(
+    "--color",
+    required=True,
+    type=click.Choice(["white", "black"]),
+    help="Index games where the player was this colour.",
+)
+@click.option(
+    "--max-plies",
+    "max_plies",
+    default=30,
+    show_default=True,
+    help="Walk each game at most this many half-moves (opening depth).",
+)
+@click.option(
+    "--db",
+    "db_path",
+    default=str(_FETCH_DB),
+    show_default=True,
+    help="Path to the SQLite cache database.",
+)
+def import_pgn_cmd(
+    pgn_path: str,
+    username: str,
+    color: str,
+    max_plies: int,
+    db_path: str,
+) -> None:
+    """Index a local PGN file as player opening data.
+
+    Use this instead of fetch-player-games when the player's Lichess
+    account is inactive or you want to use OTB games from another source
+    (chessgames.com, FIDE, TWIC, etc.).
+
+    \b
+    Example workflow:
+      # 1. Download Levy Rozman's games from chessgames.com as PGN, then:
+      mysecond import-pgn-player --pgn levy.pgn --username GothamChess --color white
+      # 2. Now search using his real repertoire:
+      mysecond search --player GothamChess --opponent im_eric_rosen --side white ...
+    """
+    p = Path(pgn_path)
+    if not p.exists():
+        click.echo(f"Error: PGN file not found: {p}", err=True)
+        sys.exit(1)
+
+    db = Path(db_path)
+    with Cache(db) as cache:
+        count = import_pgn_player(
+            pgn_path=p,
+            username=username,
+            color=color,
+            cache=cache,
+            max_plies=max_plies,
+            verbose=True,
+        )
+
+    if count == 0:
+        click.echo("[import] Warning: no positions were indexed.", err=True)
         sys.exit(1)

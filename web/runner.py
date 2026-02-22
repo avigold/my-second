@@ -111,3 +111,14 @@ def launch_job(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") 
 
     t = threading.Thread(target=_reader, daemon=True)
     t.start()
+
+
+def build_import_argv(params: dict, pgn_path: str) -> list[str]:
+    """Build the argv list for ``mysecond import-pgn-player``."""
+    cmd = [_mysecond_bin(), "import-pgn-player"]
+    cmd += ["--pgn", pgn_path]
+    cmd += ["--username", params["username"]]
+    cmd += ["--color", params["color"]]
+    if params.get("max_plies"):
+        cmd += ["--max-plies", str(params["max_plies"])]
+    return cmd

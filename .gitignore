@@ -30,6 +30,7 @@ data/cache.sqlite
 data/cache.sqlite-shm
 data/cache.sqlite-wal
 data/jobs.sqlite
+data/uploads/
 
 # PGN output files
 data/output/*

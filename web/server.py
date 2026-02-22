@@ -20,7 +20,7 @@ from flask import (
 
 from jobs import Job, JobRegistry
 from pgn_parser import parse_novelties
-from runner import build_fetch_argv, build_search_argv, launch_job
+from runner import build_fetch_argv, build_import_argv, build_search_argv, launch_job
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -31,6 +31,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
 OUTPUT_DIR = DATA_DIR / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+UPLOADS_DIR = DATA_DIR / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.urandom(24)
@@ -233,8 +235,50 @@ def api_delete_job(job_id: str):
             Path(job.out_path).unlink(missing_ok=True)
         except OSError:
             pass
+    # Remove uploaded PGN for import jobs.
+    upload_path = UPLOADS_DIR / f"{job_id}.pgn"
+    if upload_path.exists():
+        try:
+            upload_path.unlink()
+        except OSError:
+            pass
     registry.delete(job_id)
     return jsonify({"status": "deleted"})
+
+
+@app.get("/import-pgn")
+def import_pgn_page():
+    return render_template("import.html")
+
+
+@app.post("/api/import-pgn")
+def api_import_pgn():
+    username = request.form.get("username", "").strip()
+    color = request.form.get("color", "white")
+    max_plies = request.form.get("max_plies", "")
+    pgn_file = request.files.get("pgn_file")
+
+    if not username or not pgn_file or not pgn_file.filename:
+        return jsonify({"error": "username and pgn_file are required"}), 400
+
+    params = {
+        "username": username,
+        "color": color,
+        "filename": pgn_file.filename,
+    }
+    if max_plies.isdigit():
+        params["max_plies"] = int(max_plies)
+
+    job = registry.create("import", params)
+
+    # Save the uploaded file under the job ID so the subprocess can read it.
+    pgn_path = str(UPLOADS_DIR / f"{job.id}.pgn")
+    pgn_file.save(pgn_path)
+
+    argv = build_import_argv(params, pgn_path)
+    launch_job(job, argv, REPO_ROOT, registry)
+    return jsonify({"job_id": job.id})
+
 
 
 # ---------------------------------------------------------------------------

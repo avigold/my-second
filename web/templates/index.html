@@ -32,6 +32,8 @@ async function loadJobs() {
     const time = new Date(j.started_at).toLocaleString();
     const params = j.command === 'fetch'
       ? `${j.params.username} / ${j.params.color}`
+      : j.command === 'import'
+      ? `${j.params.username} / ${j.params.color} — ${j.params.filename || 'PGN file'}`
       : `${j.params.side} | player=${j.params.player || '—'} opp=${j.params.opponent || '—'}`;
     const download = j.status === 'done' && j.out_path
       ? `<a href="/api/jobs/${j.id}/download" class="text-amber-400 text-xs hover:underline ml-2">↓ PGN</a>`

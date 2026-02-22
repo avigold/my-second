@@ -408,3 +408,50 @@ def _write_fetch_meta(cache: Cache, backend: str) -> None:
     ts_ms = int(time.time() * 1000)
     meta_key = f"_fetch_meta_{backend}"
     cache.set(meta_key, "meta", {"ts_ms": ts_ms})
+
+
+def import_pgn_player(
+    pgn_path: Path,
+    username: str,
+    color: str,
+    cache: Cache,
+    speeds: str = "blitz,rapid,classical",
+    max_plies: int = 30,
+    verbose: bool = True,
+) -> int:
+    """Index games from a local PGN file into the player cache.
+
+    Useful when the player's Lichess account is inactive or you want
+    to use OTB games obtained from chessgames.com, FIDE, TWIC, etc.
+    The data is stored under the same cache key as ``fetch_player_games``
+    so ``mysecond search --player <username>`` reads it transparently.
+    """
+    pgn_text = pgn_path.read_text(encoding="utf-8", errors="replace")
+    if verbose:
+        print(
+            f"[import] Reading {pgn_path.name}  ({len(pgn_text):,} chars) "
+            f"for {username} as {color} …",
+            flush=True,
+        )
+
+    book = _build_book(pgn_text, color, max_plies, verbose=verbose)
+
+    if not book:
+        if verbose:
+            print("[import] No positions extracted.")
+        return 0
+
+    backend = _backend_key(username, color, speeds)
+    if verbose:
+        print(
+            f"[import] Writing {len(book):,} positions to cache …",
+            flush=True,
+        )
+
+    _store_book(book, cache, backend, merge=False)
+    _write_fetch_meta(cache, backend)
+
+    if verbose:
+        print(f"[import] Done. {len(book):,} positions cached for {username} ({color}).")
+
+    return len(book)
