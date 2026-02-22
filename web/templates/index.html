@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}mysecond – Job History{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Job History</h1>
+  <div class="flex gap-3">
+    <a href="/fetch" class="btn-secondary">Fetch Games</a>
+    <a href="/search" class="btn-primary">Search Novelties</a>
+  </div>
+</div>
+
+<div id="job-list" class="space-y-2">
+  <p class="text-gray-500 text-sm">Loading…</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadJobs() {
+  const res = await fetch('/api/jobs');
+  const jobs = await res.json();
+  const el = document.getElementById('job-list');
+
+  if (jobs.length === 0) {
+    el.innerHTML = '<p class="text-gray-500 text-sm">No jobs yet. Run a fetch or search to get started.</p>';
+    return;
+  }
+
+  el.innerHTML = jobs.map(j => {
+    const badge = `<span class="status-${j.status} text-xs font-mono uppercase">${j.status}</span>`;
+    const time = new Date(j.started_at).toLocaleString();
+    const params = j.command === 'fetch'
+      ? `${j.params.username} / ${j.params.color}`
+      : `${j.params.side} | player=${j.params.player || '—'} opp=${j.params.opponent || '—'}`;
+    const download = j.status === 'done' && j.out_path
+      ? `<a href="/api/jobs/${j.id}/download" class="text-amber-400 text-xs hover:underline ml-2">↓ PGN</a>`
+      : '';
+    return `
+      <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 flex items-center gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-xs text-gray-500">${j.id.slice(0,8)}</span>
+            <span class="text-xs bg-gray-800 px-2 py-0.5 rounded text-gray-300">${j.command}</span>
+            ${badge}
+          </div>
+          <div class="text-sm text-gray-300 mt-0.5 truncate">${params}</div>
+          <div class="text-xs text-gray-600 mt-0.5">${time}</div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          ${download}
+          <a href="/jobs/${j.id}" class="btn-secondary text-xs">View</a>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+loadJobs();
+</script>
+{% endblock %}

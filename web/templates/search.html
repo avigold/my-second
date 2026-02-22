@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}mysecond – Search Novelties{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">Search for Novelties</h1>
+<p class="text-gray-400 text-sm mb-6">
+  Walk opening theory and find moves not (or barely) played in master games.
+  Set <em>Player</em> and <em>Opponent</em> to scope the search to lines both players actually reach.
+</p>
+
+<form id="search-form" data-api="/api/search" class="space-y-5">
+
+  <!-- ── Required ── -->
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="form-label">Side to prepare for *</label>
+      <select name="side" class="form-input" required>
+        <option value="white">White</option>
+        <option value="black">Black</option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label">Starting FEN</label>
+      <div class="flex gap-2">
+        <input name="fen" id="fen-input" class="form-input"
+               value="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1">
+        <button type="button" id="reset-fen"
+                class="shrink-0 text-xs bg-gray-700 hover:bg-gray-600 px-2 rounded">
+          Reset
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Player / Opponent ── -->
+  <details class="bg-gray-900 border border-gray-800 rounded-lg p-4" open>
+    <summary class="text-sm font-semibold text-amber-400 mb-2">Player / Opponent Filtering</summary>
+    <p class="text-xs text-gray-500 mt-2 mb-3">
+      Run <strong>Fetch Games</strong> first for each username. The walk then uses
+      only local cache data (fast). Leave blank for generic master-theory search.
+    </p>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="form-label">Player (Lichess username)</label>
+        <input name="player" class="form-input" placeholder="e.g. Alireza2003">
+      </div>
+      <div>
+        <label class="form-label">Opponent (Lichess username)</label>
+        <input name="opponent" class="form-input" placeholder="e.g. DrNykterstein">
+      </div>
+      <div>
+        <label class="form-label">Player Time Controls</label>
+        <input name="player_speeds" class="form-input" value="blitz,rapid,classical">
+      </div>
+      <div>
+        <label class="form-label">Opponent Time Controls</label>
+        <input name="opponent_speeds" class="form-input" value="blitz,rapid,classical">
+      </div>
+      <div>
+        <label class="form-label">Min Player Games per Move</label>
+        <input name="min_player_games" type="number" class="form-input" value="3">
+      </div>
+      <div>
+        <label class="form-label">Min Opponent Games per Move</label>
+        <input name="min_opponent_games" type="number" class="form-input" value="3">
+      </div>
+    </div>
+  </details>
+
+  <!-- ── Theory Walk ── -->
+  <details class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <summary class="text-sm font-semibold text-gray-300 mb-2">Theory Walk Parameters</summary>
+    <div class="mt-3 grid grid-cols-3 gap-4">
+      <div>
+        <label class="form-label">Max Theory Depth (plies)</label>
+        <input name="plies" type="number" class="form-input" value="25">
+      </div>
+      <div>
+        <label class="form-label">Engine Candidates (beam)</label>
+        <input name="beam" type="number" class="form-input" value="10">
+      </div>
+      <div>
+        <label class="form-label">Opponent Responses</label>
+        <input name="opponent_responses" type="number" class="form-input" value="3">
+      </div>
+      <div>
+        <label class="form-label">Min Book Games</label>
+        <input name="min_book_games" type="number" class="form-input" value="5">
+      </div>
+      <div>
+        <label class="form-label">Novelty Threshold (≤ games)</label>
+        <input name="novelty_threshold" type="number" class="form-input" value="2">
+      </div>
+      <div>
+        <label class="form-label">Max Positions</label>
+        <input name="max_positions" type="number" class="form-input" value="800">
+      </div>
+    </div>
+  </details>
+
+  <!-- ── Evaluation ── -->
+  <details class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <summary class="text-sm font-semibold text-gray-300 mb-2">Evaluation Parameters</summary>
+    <div class="mt-3 grid grid-cols-3 gap-4">
+      <div>
+        <label class="form-label">Eval Depths (comma-sep)</label>
+        <input name="depths" class="form-input" value="20,24,28">
+      </div>
+      <div>
+        <label class="form-label">Quick Eval Time (ms)</label>
+        <input name="time_ms" type="number" class="form-input" value="200">
+      </div>
+      <div>
+        <label class="form-label">Min Eval (centipawns)</label>
+        <input name="min_eval" type="number" class="form-input" value="0">
+      </div>
+      <div>
+        <label class="form-label">Continuation Plies (PV)</label>
+        <input name="continuation_plies" type="number" class="form-input" value="6">
+      </div>
+      <div>
+        <label class="form-label">Parallel Workers</label>
+        <input name="workers" type="number" class="form-input" value="4">
+      </div>
+      <div>
+        <label class="form-label">Max Candidates</label>
+        <input name="max_candidates" type="number" class="form-input" value="200">
+      </div>
+    </div>
+  </details>
+
+  <div id="error-msg" class="text-red-400 text-sm hidden"></div>
+
+  <button type="submit" class="btn-primary" id="submit-btn">
+    Start Search
+  </button>
+</form>
+
+<script>
+document.getElementById('reset-fen').addEventListener('click', () => {
+  document.getElementById('fen-input').value =
+    'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+});
+</script>
+{% endblock %}

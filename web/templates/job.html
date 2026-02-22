@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}mysecond – Job {{ job.id[:8] }}{% endblock %}
+
+{% block content %}
+<div class="flex items-start justify-between mb-6">
+  <div>
+    <div class="flex items-center gap-3 mb-1">
+      <h1 class="text-2xl font-bold">
+        {{ "Fetch Games" if job.command == "fetch" else "Search Novelties" }}
+      </h1>
+      <span id="status-badge"
+            class="status-{{ job.status }} text-xs font-mono uppercase border border-current px-2 py-0.5 rounded">
+        {{ job.status }}
+      </span>
+    </div>
+    <p class="text-gray-500 text-xs font-mono">{{ job.id }}</p>
+  </div>
+
+  <div class="flex gap-2 items-center">
+    {% if job.command == 'search' %}
+    <a id="download-btn"
+       href="/api/jobs/{{ job.id }}/download"
+       class="btn-primary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
+       download>
+      ↓ Download PGN
+    </a>
+    {% endif %}
+    <a href="/" class="btn-secondary text-sm">← History</a>
+  </div>
+</div>
+
+<!-- Params summary -->
+<details class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 mb-4 text-sm">
+  <summary class="text-gray-400 cursor-pointer">Job Parameters</summary>
+  <pre class="mt-2 text-xs text-gray-300 whitespace-pre-wrap">{{ job.params | tojson(indent=2) }}</pre>
+</details>
+
+<!-- Log output -->
+<div class="relative">
+  <pre id="log-output"
+       class="bg-gray-900 border border-gray-800 rounded-lg p-4 h-[32rem] overflow-y-auto
+              font-mono text-sm text-green-300 whitespace-pre-wrap leading-relaxed"></pre>
+  <div class="absolute bottom-3 right-3">
+    <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+      <input type="checkbox" id="autoscroll" checked class="accent-amber-400">
+      Auto-scroll
+    </label>
+  </div>
+</div>
+
+<!-- Exit code -->
+{% if job.exit_code is not none %}
+<p class="mt-2 text-xs text-gray-600">Exit code: {{ job.exit_code }}</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const JOB_ID     = {{ job.id | tojson }};
+const JOB_STATUS = {{ job.status | tojson }};
+
+const logEl    = document.getElementById('log-output');
+const badge    = document.getElementById('status-badge');
+const dlBtn    = document.getElementById('download-btn');
+const autoChk  = document.getElementById('autoscroll');
+
+function appendLine(line) {
+  logEl.textContent += line + '\n';
+  if (autoChk.checked) logEl.scrollTop = logEl.scrollHeight;
+}
+
+function markDone(status) {
+  badge.textContent = status;
+  badge.className = `status-${status} text-xs font-mono uppercase border border-current px-2 py-0.5 rounded`;
+  if (status === 'done' && dlBtn) dlBtn.classList.remove('hidden');
+}
+
+// Connect SSE only if job is/was running.
+if (JOB_STATUS === 'running') {
+  const es = new EventSource(`/api/jobs/${JOB_ID}/stream`);
+
+  es.onmessage = (e) => {
+    const { line } = JSON.parse(e.data);
+    appendLine(line);
+  };
+
+  es.addEventListener('done', () => {
+    es.close();
+    // Fetch final status to update badge + download button.
+    fetch(`/api/jobs/${JOB_ID}`)
+      .then(r => r.json())
+      .then(j => markDone(j.status));
+  });
+
+  es.onerror = () => {
+    appendLine('[connection lost – refresh to reconnect]');
+    es.close();
+  };
+} else {
+  // Job already finished: load stored log via SSE replay (or just show status).
+  const es = new EventSource(`/api/jobs/${JOB_ID}/stream`);
+  es.onmessage = (e) => {
+    const { line } = JSON.parse(e.data);
+    appendLine(line);
+  };
+  es.addEventListener('done', () => es.close());
+}
+</script>
+{% endblock %}

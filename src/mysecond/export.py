@@ -6,6 +6,7 @@ Each novelty is exported as a separate PGN game.  The structure is:
 
   [standard headers]
   [Annotator "mysecond"]
+  [White "player_name"] / [Black "player_name"]   (when --player is set)
 
   { Game-level comment: rank, score, novelty move in SAN, eval summary }
 
@@ -44,6 +45,9 @@ def export_pgn(
     scored: list[ScoredNovelty],
     root_fen: str,
     out_path: Path,
+    *,
+    player_name: str | None = None,
+    opponent_name: str | None = None,
 ) -> None:
     """Write all novelties to *out_path* as a multi-game PGN."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -52,7 +56,11 @@ def export_pgn(
     with open(out_path, "w", encoding="utf-8") as fh:
         exporter = chess.pgn.FileExporter(fh)
         for rank, sn in enumerate(scored, start=1):
-            game = _build_game(sn, root_fen, today, rank)
+            game = _build_game(
+                sn, root_fen, today, rank,
+                player_name=player_name,
+                opponent_name=opponent_name,
+            )
             game.accept(exporter)
             fh.write("\n")
 
@@ -67,6 +75,9 @@ def _build_game(
     root_fen: str,
     today: str,
     rank: int,
+    *,
+    player_name: str | None = None,
+    opponent_name: str | None = None,
 ) -> chess.pgn.Game:
     game = chess.pgn.Game()
 
@@ -74,12 +85,13 @@ def _build_game(
     game.headers["Site"] = "?"
     game.headers["Date"] = today
     game.headers["Round"] = str(rank)
-    game.headers["White"] = "?"
-    game.headers["Black"] = "?"
     game.headers["Result"] = "*"
     game.headers["Annotator"] = "mysecond"
 
+    # Populate White/Black headers from player/opponent context when available.
     root_board = chess.Board(root_fen)
+    _set_player_headers(game, root_board, player_name, opponent_name)
+
     game.setup(root_board)  # sets FEN / SetUp headers if non-starting position
 
     nov = sn.novelty
@@ -100,6 +112,8 @@ def _build_game(
         f"Pre-novelty: {nov.pre_novelty_games} master games | "
         f"Post-novelty: {nov.post_novelty_games} master games"
     )
+    if player_name and opponent_name:
+        game.comment += f" | Prepared for: {player_name} vs {opponent_name}"
 
     # --- Book moves (unannotated) ---
     node: chess.pgn.GameNode = game
@@ -133,6 +147,34 @@ def _build_game(
         nov_board.push(cont_move)
 
     return game
+
+
+def _set_player_headers(
+    game: chess.pgn.Game,
+    root_board: chess.Board,
+    player_name: str | None,
+    opponent_name: str | None,
+) -> None:
+    """Set White/Black headers based on player/opponent context."""
+    white_label = "?"
+    black_label = "?"
+
+    if player_name and opponent_name:
+        if root_board.turn == chess.WHITE:
+            # First move is White's, so White = player (if player is White).
+            # We don't know the side here — use generic labels.
+            white_label = player_name
+            black_label = opponent_name
+        else:
+            white_label = opponent_name
+            black_label = player_name
+    elif player_name:
+        white_label = player_name
+    elif opponent_name:
+        black_label = opponent_name
+
+    game.headers["White"] = white_label
+    game.headers["Black"] = black_label
 
 
 def _novelty_comment(sn: ScoredNovelty) -> str:

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}mysecond – Fetch Player Games{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">Fetch Player Games</h1>
+<p class="text-gray-400 text-sm mb-6">
+  Download a player's Lichess game history and index it locally.
+  Run this before searching to make the theory walk fast.
+</p>
+
+<form id="fetch-form" data-api="/api/fetch" class="space-y-5 max-w-lg">
+  <!-- Required -->
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="form-label">Lichess Username *</label>
+      <input name="username" class="form-input" placeholder="e.g. Alireza2003" required>
+    </div>
+    <div>
+      <label class="form-label">Colour *</label>
+      <select name="color" class="form-input" required>
+        <option value="white">White</option>
+        <option value="black">Black</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Optional -->
+  <details class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <summary class="text-sm font-medium text-gray-300 mb-2">Optional Parameters</summary>
+    <div class="mt-3 grid grid-cols-2 gap-4">
+      <div>
+        <label class="form-label">Time Controls</label>
+        <input name="speeds" class="form-input" value="blitz,rapid,classical"
+               placeholder="bullet,blitz,rapid,classical">
+      </div>
+      <div>
+        <label class="form-label">Max Games</label>
+        <input name="max_games" type="number" class="form-input" value="10000">
+      </div>
+      <div>
+        <label class="form-label">Max Opening Depth (plies)</label>
+        <input name="max_plies" type="number" class="form-input" value="30">
+      </div>
+      <div>
+        <label class="form-label">Since Date (YYYY-MM-DD)</label>
+        <input name="since_date" class="form-input" placeholder="leave blank for full fetch">
+      </div>
+    </div>
+  </details>
+
+  <div id="error-msg" class="text-red-400 text-sm hidden"></div>
+
+  <button type="submit" class="btn-primary" id="submit-btn">
+    Start Fetch
+  </button>
+</form>
+{% endblock %}

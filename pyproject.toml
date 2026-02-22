@@ -18,6 +18,9 @@ test = [
     "pytest>=7.0",
     "pytest-mock>=3.0",
 ]
+web = [
+    "flask>=3.0",
+]
 
 [project.scripts]
 mysecond = "mysecond.cli:main"

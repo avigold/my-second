@@ -13,9 +13,13 @@ Phase 1 – Theory walk (sequential, explorer-rate-limited):
             The quick eval from analyse_multipv is stored.  Candidates that
             already fail ``min_eval_cp`` are discarded immediately.
         - games > novelty_threshold → still in book → recurse deeper
+            With ``player_name`` set: only recurse on moves the player
+            has actually played (≥ ``min_player_games`` in their games).
 
   * At OPPONENT's turns
-      Follow the ``opponent_responses`` most popular database moves → recurse.
+      Follow the ``opponent_responses`` most popular database moves.
+      With ``opponent_name`` set: follow that player's own moves from
+      their Lichess game history instead of generic masters top moves.
 
   Positions with fewer than ``min_book_games`` total games are considered
   out-of-book and the walk stops there.
@@ -39,6 +43,7 @@ from __future__ import annotations
 
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -49,6 +54,7 @@ from .cache import Cache
 from .engine import Engine
 from .explorer import LichessExplorer
 from .models import EngineEval, NoveltyLine
+from .repertoire import PlayerExplorer
 
 _DEFAULT_DB = Path("data/cache.sqlite")
 
@@ -76,6 +82,20 @@ class SearchConfig:
     max_positions: int = 800  # guard against runaway tree exploration
     max_candidates: int = 200  # max candidates to send to deep evaluation
 
+    # --- Player/opponent filtering (optional) ---
+    # Set these to a Lichess username to scope the walk to lines the player
+    # and opponent actually play, rather than all of master theory.
+    player_name: str | None = None    # Lichess username of the player we prepare for
+    opponent_name: str | None = None  # Lichess username of the opponent
+    min_player_games: int = 3         # min player games for a move to be "in repertoire"
+    min_opponent_games: int = 3       # min opponent games for a move to be "their line"
+    player_speeds: str = "blitz,rapid,classical"    # time controls for player's games
+    opponent_speeds: str = "blitz,rapid,classical"  # time controls for opponent's games
+    # When True, PlayerExplorer never makes HTTP requests; use only local cache.
+    # Always set to True after running fetch-player-games (the default when
+    # player_name/opponent_name are set from the CLI).
+    player_local_only: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Internal staging type (between walk and evaluation phases)
@@ -100,6 +120,30 @@ class _PendingNovelty:
 def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
     """Walk theory and return deeply evaluated novelty candidates."""
 
+    # Determine colours for player/opponent explorers.
+    player_color = "white" if config.side == chess.WHITE else "black"
+    opponent_color = "black" if config.side == chess.WHITE else "white"
+
+    # Build optional player/opponent explorer context managers.
+    player_ctx: PlayerExplorer | nullcontext  # type: ignore[type-arg]
+    opponent_ctx: PlayerExplorer | nullcontext  # type: ignore[type-arg]
+
+    if config.player_name:
+        player_ctx = PlayerExplorer(
+            config.player_name, player_color, Cache(_DEFAULT_DB),
+            speeds=config.player_speeds,
+        )
+    else:
+        player_ctx = nullcontext()
+
+    if config.opponent_name:
+        opponent_ctx = PlayerExplorer(
+            config.opponent_name, opponent_color, Cache(_DEFAULT_DB),
+            speeds=config.opponent_speeds,
+        )
+    else:
+        opponent_ctx = nullcontext()
+
     # --- Phase 1: tree walk (sequential; one engine + one explorer) ----------
     pending: list[_PendingNovelty] = []
     visited: set[str] = set()
@@ -108,16 +152,20 @@ def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
     with Engine(config.engine_path) as eng:
         with Cache(_DEFAULT_DB) as cache:
             with LichessExplorer(cache) as explorer:
-                _walk(
-                    board=chess.Board(config.fen),
-                    book_moves=[],
-                    config=config,
-                    eng=eng,
-                    explorer=explorer,
-                    pending=pending,
-                    visited=visited,
-                    positions_visited=positions_visited,
-                )
+                with player_ctx as player_explorer:
+                    with opponent_ctx as opponent_explorer:
+                        _walk(
+                            board=chess.Board(config.fen),
+                            book_moves=[],
+                            config=config,
+                            eng=eng,
+                            explorer=explorer,
+                            pending=pending,
+                            visited=visited,
+                            positions_visited=positions_visited,
+                            player_explorer=player_explorer,
+                            opponent_explorer=opponent_explorer,
+                        )
 
     if not pending:
         return []
@@ -170,6 +218,8 @@ def _walk(
     pending: list[_PendingNovelty],
     visited: set[str],
     positions_visited: list[int],
+    player_explorer: PlayerExplorer | None = None,
+    opponent_explorer: PlayerExplorer | None = None,
 ) -> None:
     """Recursively walk the opening tree, collecting novelty candidates."""
 
@@ -199,6 +249,15 @@ def _walk(
             time_ms=config.time_ms,
         )
 
+        # Fetch player's own data once for this position.
+        # local_only=True means cache-miss → None → fallback to unrestricted
+        # (no live HTTP call; safe and fast after fetch-player-games).
+        player_data = (
+            player_explorer.get_data(fen, local_only=config.player_local_only)
+            if player_explorer
+            else None
+        )
+
         for info in infos:
             if "pv" not in info or not info["pv"]:
                 continue
@@ -224,7 +283,9 @@ def _walk(
                         )
                     )
             else:
-                # Still in book – walk deeper.
+                # Still in book – walk deeper, but only if within player's repertoire.
+                if not _player_plays_move(move, player_data, config.min_player_games):
+                    continue
                 new_board = board.copy()
                 new_board.push(move)
                 _walk(
@@ -236,10 +297,17 @@ def _walk(
                     pending,
                     visited,
                     positions_visited,
+                    player_explorer,
+                    opponent_explorer,
                 )
     else:
-        # Opponent's turn: follow the most popular database responses.
-        for move_stats in data.top_moves(config.opponent_responses):
+        # Opponent's turn: follow the most popular moves.
+        # With an opponent explorer: follow the opponent's actual moves.
+        move_list = _opponent_moves(
+            fen, data, opponent_explorer, config.opponent_responses,
+            config.min_opponent_games, local_only=config.player_local_only,
+        )
+        for move_stats in move_list:
             move = chess.Move.from_uci(move_stats.uci)
             if move not in board.legal_moves:
                 continue
@@ -254,7 +322,60 @@ def _walk(
                 pending,
                 visited,
                 positions_visited,
+                player_explorer,
+                opponent_explorer,
             )
+
+
+# ---------------------------------------------------------------------------
+# Walk helpers
+# ---------------------------------------------------------------------------
+
+
+def _player_plays_move(
+    move: chess.Move,
+    player_data: object,  # ExplorerData | None
+    min_games: int,
+) -> bool:
+    """Return True if the player has played *move*, or if no player filter is active.
+
+    ``player_data`` is the per-position data from the player's own explorer.
+
+    * ``None`` → no player filter active; allow all moves.
+    * ``total < min_games`` → not enough games in this position to make a
+      reliable repertoire decision; fall back to allowing all moves rather
+      than silently blocking the entire subtree.
+    * Otherwise check whether the player has played this specific move.
+    """
+    if player_data is None:
+        return True  # no player filter → allow all
+    # If the player has no meaningful data in this position, don't restrict.
+    if player_data.total < min_games:  # type: ignore[union-attr]
+        return True
+    return player_data.games_for_move(move.uci()) >= min_games  # type: ignore[union-attr]
+
+
+def _opponent_moves(
+    fen: str,
+    masters_data: object,  # ExplorerData
+    opponent_explorer: PlayerExplorer | None,
+    n: int,
+    min_games: int,
+    local_only: bool = False,
+) -> list:
+    """Return the opponent moves to follow at this position.
+
+    Uses the opponent's personal explorer if available and they have enough
+    games here; otherwise falls back to the full masters database top moves.
+    """
+    if opponent_explorer is not None:
+        opp_data = opponent_explorer.get_data(fen, local_only=local_only)
+        if opp_data is not None and opp_data.total >= min_games:
+            top = opp_data.top_moves(n)
+            if top:
+                return top
+    # Fall back to full masters database.
+    return masters_data.top_moves(n)  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------
