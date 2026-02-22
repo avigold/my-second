@@ -179,6 +179,12 @@ def _download_pgn(
     url = _LICHESS_GAMES_URL.format(username=username)
     try:
         resp = session.get(url, params=params, timeout=180)
+        if resp.status_code == 404:
+            raise RuntimeError(
+                f"Lichess user '{username}' not found (404). "
+                "Check the spelling — Lichess usernames are case-insensitive "
+                "but must match exactly (e.g. 'GothamChess', not 'Rozman_Levy')."
+            )
         resp.raise_for_status()
         return resp.text
     except requests.RequestException as exc:
