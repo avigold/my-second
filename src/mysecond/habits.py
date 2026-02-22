@@ -34,7 +34,7 @@ import chess.pgn
 
 from .cache import Cache
 from .engine import Engine
-from .fetcher import _backend_key
+from .fetcher import _backend_key, fetch_player_games, fetch_player_games_chesscom
 
 
 @dataclass
@@ -117,11 +117,31 @@ def analyze_habits(
     if not all_positions:
         if verbose:
             print(
-                "[habits] No cached data found. Ensure you have run "
-                "'fetch-player-games' with the same platform and speeds.",
+                f"[habits] No cached data found — fetching games from {platform} first …",
                 flush=True,
             )
-        return []
+        if platform == "chesscom":
+            fetch_player_games_chesscom(
+                username=username,
+                color=color,
+                cache=cache,
+                speeds=speeds,
+                verbose=verbose,
+            )
+        else:
+            fetch_player_games(
+                username=username,
+                color=color,
+                cache=cache,
+                speeds=speeds,
+                verbose=verbose,
+            )
+        all_positions = cache.scan_backend(backend)
+        all_positions = [(f, p) for f, p in all_positions if not f.startswith("_")]
+        if not all_positions:
+            if verbose:
+                print("[habits] No games found after fetch — check username and speeds.", flush=True)
+            return []
 
     # Collect every (fen, payload, move_data) triple where the position was
     # reached >= min_games times AND the specific move was played >= min_games

@@ -691,15 +691,12 @@ def analyze_habits_cmd(
 ) -> None:
     """Find positions where a player habitually plays a suboptimal move.
 
-    Scans the player's cached opening data, identifies positions they reach
-    frequently where they consistently choose a non-optimal move, and exports
-    an annotated PGN for ChessBase import.
+    Identifies positions the player reaches frequently where they consistently
+    choose a non-optimal move, and exports an annotated PGN for ChessBase import.
+    Games are fetched automatically if not already cached.
 
     \b
     Example:
-      # First fetch the player's games, then analyse:
-      mysecond fetch-player-games --username Hikaru --platform chesscom \\
-          --color white --speeds blitz,rapid
       mysecond analyse-habits --username Hikaru --platform chesscom \\
           --color white --speeds blitz,rapid --min-games 10
 
