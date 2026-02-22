@@ -6,6 +6,7 @@
   <h1 class="text-2xl font-bold">Job History</h1>
   <div class="flex gap-3">
     <a href="/fetch" class="btn-secondary">Fetch Games</a>
+    <a href="/repertoire" class="btn-secondary">Extract Repertoire</a>
     <a href="/habits" class="btn-secondary">Analyze Habits</a>
     <a href="/search" class="btn-primary">Search Novelties</a>
   </div>
@@ -38,6 +39,8 @@ async function loadJobs() {
       ? `${j.params.username} / ${j.params.color} — ${j.params.filename || 'PGN file'}`
       : j.command === 'habits'
       ? `${j.params.username} / ${j.params.color} — habit analysis`
+      : j.command === 'repertoire'
+      ? `${j.params.username} / ${j.params.color} — repertoire (${j.params.platform || 'lichess'})`
       : `${j.params.side} | player=${j.params.player || '—'} opp=${j.params.opponent || '—'}`;
     const download = j.status === 'done' && j.out_path
       ? `<a href="/api/jobs/${j.id}/download" class="text-amber-400 text-xs hover:underline ml-2">↓ PGN</a>`

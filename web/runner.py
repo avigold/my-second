@@ -119,6 +119,23 @@ def launch_job(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") 
     t.start()
 
 
+def build_repertoire_argv(params: dict, out_path: str) -> list[str]:
+    """Build the argv list for ``mysecond extract-repertoire``."""
+    cmd = [_mysecond_bin(), "extract-repertoire"]
+    cmd += ["--username", params["username"]]
+    cmd += ["--color", params["color"]]
+    cmd += ["--out", out_path]
+    if params.get("platform"):
+        cmd += ["--platform", params["platform"]]
+    if params.get("speeds"):
+        cmd += ["--speeds", params["speeds"]]
+    if params.get("min_games"):
+        cmd += ["--min-games", str(params["min_games"])]
+    if params.get("max_plies"):
+        cmd += ["--max-plies", str(params["max_plies"])]
+    return cmd
+
+
 def build_habits_argv(params: dict, out_path: str) -> list[str]:
     """Build the argv list for ``mysecond analyze-habits``."""
     cmd = [_mysecond_bin(), "analyze-habits"]

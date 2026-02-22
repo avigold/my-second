@@ -9,6 +9,7 @@
         {% if job.command == "fetch" %}Fetch Games
         {% elif job.command == "search" %}Search Novelties
         {% elif job.command == "habits" %}Analyze Habits
+        {% elif job.command == "repertoire" %}Extract Repertoire
         {% elif job.command == "import" %}Import PGN
         {% else %}{{ job.command }}{% endif %}
       </h1>
@@ -35,7 +36,7 @@
       Browse Habits
     </a>
     {% endif %}
-    {% if job.command in ('search', 'habits') %}
+    {% if job.command in ('search', 'habits', 'repertoire') %}
     <a id="download-btn"
        href="/api/jobs/{{ job.id }}/download"
        class="btn-primary {{ 'hidden' if job.status != 'done' or not job.out_path }}"

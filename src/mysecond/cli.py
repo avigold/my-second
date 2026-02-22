@@ -24,6 +24,7 @@ from .export import export_pgn
 from .fetcher import _DEFAULT_DB as _FETCH_DB
 from .fetcher import fetch_player_games, fetch_player_games_chesscom, import_pgn_player, last_fetch_ts
 from .habits import analyze_habits, export_habits_pgn
+from .repertoire_extract import RepertoireStats, export_repertoire_pgn, extract_repertoire
 from .score import score_novelty
 from .search import SearchConfig, find_novelties
 
@@ -745,3 +746,115 @@ def analyze_habits_cmd(
         )
 
     click.echo("\n[habits] Done.")
+
+
+# ---------------------------------------------------------------------------
+# extract-repertoire
+# ---------------------------------------------------------------------------
+
+
+@main.command("extract-repertoire")
+@click.option("--username", required=True, help="Player username.")
+@click.option(
+    "--color",
+    required=True,
+    type=click.Choice(["white", "black"]),
+    help="Side to extract repertoire for.",
+)
+@click.option(
+    "--platform",
+    default="lichess",
+    show_default=True,
+    type=click.Choice(["lichess", "chesscom"]),
+    help="Platform the games were fetched from.",
+)
+@click.option(
+    "--speeds",
+    default="blitz,rapid,classical",
+    show_default=True,
+    help="Time controls — must match the fetch-player-games run.",
+)
+@click.option(
+    "--min-games",
+    "min_games",
+    default=5,
+    show_default=True,
+    help="A move must appear at least this many times to be included.",
+)
+@click.option(
+    "--max-plies",
+    "max_plies",
+    default=20,
+    show_default=True,
+    help="Maximum repertoire depth in half-moves.",
+)
+@click.option(
+    "--out",
+    "out_path",
+    default="repertoire.pgn",
+    show_default=True,
+    help="Output PGN file.",
+)
+@click.option(
+    "--db",
+    "db_path",
+    default=str(_FETCH_DB),
+    show_default=True,
+    help="Path to the SQLite cache database.",
+)
+def extract_repertoire_cmd(
+    username: str,
+    color: str,
+    platform: str,
+    speeds: str,
+    min_games: int,
+    max_plies: int,
+    out_path: str,
+    db_path: str,
+) -> None:
+    """Reconstruct a player's opening repertoire from cached game data.
+
+    Walks the position tree from the starting position, following moves
+    the player has played at least --min-games times. The resulting PGN
+    contains branching variations with frequency annotations, importable
+    into ChessBase, Lichess studies, etc.
+
+    \b
+    Example workflow:
+      mysecond fetch-player-games --username Hikaru --platform chesscom \\
+          --color white --speeds blitz,rapid
+      mysecond extract-repertoire --username Hikaru --platform chesscom \\
+          --color white --speeds blitz,rapid --min-games 10 --out hikaru_white.pgn
+    """
+    output = Path(out_path)
+    db = Path(db_path)
+
+    click.echo("[repertoire] Configuration")
+    click.echo(f"  Username:   {username} ({color}, {platform})")
+    click.echo(f"  Speeds:     {speeds}")
+    click.echo(f"  Min games:  {min_games}")
+    click.echo(f"  Max plies:  {max_plies}")
+    click.echo(f"  Output:     {output}")
+
+    with Cache(db) as cache:
+        try:
+            game, stats = extract_repertoire(
+                username=username,
+                color=color,
+                cache=cache,
+                speeds=speeds,
+                platform=platform,
+                min_games=min_games,
+                max_plies=max_plies,
+                verbose=True,
+            )
+        except RuntimeError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            sys.exit(1)
+
+    export_repertoire_pgn(game, output)
+    click.echo(f"\n[repertoire] Exported → {output}")
+    click.echo(f"  Positions visited : {stats.total_positions}")
+    click.echo(f"  Player moves      : {stats.total_player_moves}")
+    click.echo(f"  Max depth         : {stats.max_depth_reached} plies")
+    click.echo("\n[repertoire] Done.")

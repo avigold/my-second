@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}mysecond – Extract Repertoire{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">Extract Opening Repertoire</h1>
+<p class="text-gray-400 text-sm mb-6">
+  Reconstruct a player's opening repertoire from their cached game history.
+  The output is an annotated PGN with branching variations and frequency
+  comments — importable into ChessBase, Lichess studies, or any PGN viewer.
+  Run <strong>Fetch Games</strong> first.
+</p>
+
+<form id="repertoire-form" data-api="/api/repertoire" class="space-y-5 max-w-lg">
+
+  <div class="grid grid-cols-2 gap-4">
+    <div class="col-span-2">
+      <label class="form-label">Username *</label>
+      <input name="username" id="username-input" class="form-input"
+             placeholder="e.g. Hikaru" required>
+    </div>
+    <div>
+      <label class="form-label">Colour *</label>
+      <select name="color" class="form-input" required>
+        <option value="white">White</option>
+        <option value="black">Black</option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label">Platform *</label>
+      <select name="platform" id="platform-select" class="form-input">
+        <option value="lichess">Lichess</option>
+        <option value="chesscom">Chess.com</option>
+      </select>
+    </div>
+    <div class="col-span-2">
+      <label class="form-label">Time Controls</label>
+      <input name="speeds" id="speeds-input" class="form-input"
+             value="blitz,rapid,classical">
+      <p id="speeds-hint" class="text-xs text-gray-500 mt-1 hidden">
+        Chess.com: use <code>blitz,rapid</code> — no <code>classical</code>.
+      </p>
+      <p class="text-xs text-gray-500 mt-1">Must match what was used when fetching games.</p>
+    </div>
+  </div>
+
+  <details class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <summary class="text-sm font-medium text-gray-300">Depth &amp; Filtering</summary>
+    <div class="mt-3 grid grid-cols-2 gap-4">
+      <div>
+        <label class="form-label">Min Games per Move</label>
+        <input name="min_games" type="number" class="form-input" value="5" min="1">
+        <p class="text-xs text-gray-500 mt-1">
+          A player move must appear at least this many times to be included.
+          Raise to see only well-established lines; lower to see rare choices.
+        </p>
+      </div>
+      <div>
+        <label class="form-label">Max Depth (plies)</label>
+        <input name="max_plies" type="number" class="form-input" value="20" min="4" max="40">
+        <p class="text-xs text-gray-500 mt-1">
+          20 = solid core repertoire. Push to 30 to reveal deep preparation
+          (data gets sparse past 20, so raise min-games accordingly).
+        </p>
+      </div>
+    </div>
+  </details>
+
+  <div id="error-msg" class="text-red-400 text-sm hidden"></div>
+
+  <button type="submit" class="btn-primary" id="submit-btn">
+    Extract Repertoire
+  </button>
+</form>
+
+<script>
+const platformSelect = document.getElementById('platform-select');
+const speedsInput    = document.getElementById('speeds-input');
+const speedsHint     = document.getElementById('speeds-hint');
+const usernameInput  = document.getElementById('username-input');
+
+platformSelect.addEventListener('change', () => {
+  if (platformSelect.value === 'chesscom') {
+    speedsInput.value = 'blitz,rapid';
+    speedsHint.classList.remove('hidden');
+    usernameInput.placeholder = 'e.g. Hikaru';
+  } else {
+    speedsInput.value = 'blitz,rapid,classical';
+    speedsHint.classList.add('hidden');
+    usernameInput.placeholder = 'e.g. Alireza2003';
+  }
+});
+</script>
+{% endblock %}

@@ -21,7 +21,7 @@ from flask import (
 from habits_parser import parse_habits
 from jobs import Job, JobRegistry
 from pgn_parser import parse_novelties
-from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_search_argv, launch_job
+from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, launch_job
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -245,6 +245,26 @@ def api_delete_job(job_id: str):
             pass
     registry.delete(job_id)
     return jsonify({"status": "deleted"})
+
+
+@app.get("/repertoire")
+def repertoire_page():
+    return render_template("repertoire.html")
+
+
+@app.post("/api/repertoire")
+def api_repertoire():
+    params = request.get_json(force=True)
+    if not params.get("username") or not params.get("color"):
+        return jsonify({"error": "username and color are required"}), 400
+
+    job = registry.create("repertoire", params)
+    out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
+    job.out_path = out_path
+
+    argv = build_repertoire_argv(params, out_path)
+    launch_job(job, argv, REPO_ROOT, registry)
+    return jsonify({"job_id": job.id})
 
 
 @app.get("/habits")
