@@ -153,15 +153,32 @@ function NavBar({ currentPly, maxPly, noveltyPly, setCurrentPly }) {
 // ---------------------------------------------------------------------------
 
 function MoveList({ positions, currentPly, noveltyPly, noveltyRank, onSelect, branchMap, rootFen, onSelectNovelty, allNovelties }) {
-  const activeRef = useRef(null)
+  const containerRef = useRef(null)
 
-  // Scroll to the active move whenever ply changes OR whenever we switch to a
-  // different novelty (noveltyRank). The latter handles the case where two
-  // novelties share the same noveltyPly — currentPly wouldn't change but the
-  // list content does, so we still need to scroll.
-  useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [currentPly, noveltyRank])
+  // Helper: scroll a [data-ply] element to the vertical center of the container.
+  // Uses getBoundingClientRect so it's correct regardless of DOM nesting, and
+  // sets scrollTop directly so it always targets THIS container rather than
+  // letting scrollIntoView pick the nearest scrollable ancestor (which can be
+  // the outer page when the list content barely exceeds maxHeight).
+  const scrollToPly = (ply) => {
+    const container = containerRef.current
+    if (!container) return
+    const el = container.querySelector(`[data-ply="${ply}"]`)
+    if (!el) return
+    const cr = container.getBoundingClientRect()
+    const er = el.getBoundingClientRect()
+    container.scrollTop += er.top - cr.top - (container.clientHeight - er.height) / 2
+  }
+
+  // Scroll when the user navigates (currentPly changes).
+  useEffect(() => { scrollToPly(currentPly) }, [currentPly])
+
+  // Scroll to the novelty move whenever the displayed novelty changes.
+  // Uses noveltyRank (not currentPly) so it fires even when two novelties share
+  // the same ply number — in that case currentPly never changes and the
+  // [currentPly] effect wouldn't fire.  We query noveltyPly directly from the
+  // new DOM, bypassing any stale-currentPly timing issue.
+  useEffect(() => { scrollToPly(noveltyPly) }, [noveltyRank])
 
   // Parse root FEN for move-number and side-to-move
   const fenParts   = (rootFen || '').split(' ')
@@ -201,7 +218,7 @@ function MoveList({ positions, currentPly, noveltyPly, noveltyRank, onSelect, br
   const noveltyMoveIndex = noveltyPly - 1  // index in `moves` array
 
   return (
-    <div style={{
+    <div ref={containerRef} style={{
       background: '#0f172a', borderRadius: 8, padding: '10px 12px',
       marginBottom: 12, maxHeight: 300, overflowY: 'auto',
       fontFamily: 'monospace', fontSize: 13, lineHeight: 1.7,
@@ -222,13 +239,13 @@ function MoveList({ positions, currentPly, noveltyPly, noveltyRank, onSelect, br
                 {moveNum}.{rootIsBlack && rowIdx === 0 ? '..' : ''}
               </span>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
-                {white && <MoveChip move={white} activeRef={activeRef} onSelect={onSelect}
+                {white && <MoveChip move={white} onSelect={onSelect}
                             onSelectNovelty={onSelectNovelty} allNovelties={allNovelties} />}
                 {!white && black && (
                   // Black-only row at start (root is black to move)
                   <span style={{ minWidth: 52, display: 'inline-block' }} />
                 )}
-                {black && <MoveChip move={black} activeRef={activeRef} onSelect={onSelect}
+                {black && <MoveChip move={black} onSelect={onSelect}
                             onSelectNovelty={onSelectNovelty} allNovelties={allNovelties} />}
               </div>
             </div>
@@ -239,7 +256,7 @@ function MoveList({ positions, currentPly, noveltyPly, noveltyRank, onSelect, br
   )
 }
 
-function MoveChip({ move, activeRef, onSelect, onSelectNovelty, allNovelties }) {
+function MoveChip({ move, onSelect, onSelectNovelty, allNovelties }) {
   const { san, plyIndex, isCurrent, isNovelty, isCont, branches } = move
 
   const textColor  = isNovelty ? '#fbbf24' : isCont ? '#6b7280' : '#e5e7eb'
@@ -248,10 +265,9 @@ function MoveChip({ move, activeRef, onSelect, onSelectNovelty, allNovelties }) 
     : 'transparent'
 
   return (
-    <span style={{ display: 'inline-flex', flexDirection: 'column', minWidth: 52 }}>
+    <span data-ply={plyIndex} style={{ display: 'inline-flex', flexDirection: 'column', minWidth: 52 }}>
       {/* Main move */}
       <span
-        ref={isCurrent ? activeRef : null}
         onClick={() => onSelect(plyIndex)}
         title={isCont ? 'Engine continuation' : isNovelty ? 'Novelty' : 'Book move'}
         style={{
