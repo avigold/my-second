@@ -7,6 +7,7 @@ import os
 import queue
 from pathlib import Path
 
+import chess
 from flask import (
     Flask,
     Response,
@@ -18,6 +19,7 @@ from flask import (
 )
 
 from jobs import Job, JobRegistry
+from pgn_parser import parse_novelties
 from runner import build_fetch_argv, build_search_argv, launch_job
 
 # ---------------------------------------------------------------------------
@@ -34,6 +36,28 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.urandom(24)
 
 registry = JobRegistry(DATA_DIR / "jobs.sqlite")
+
+DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
+
+
+def _vite_tags() -> tuple[str, str]:
+    """Return (<link> CSS tag, <script> JS tag) for the Vite-built bundle.
+
+    Globs the assets/ directory for the hashed filenames rather than
+    requiring a manifest (manifest generation needs an extra Vite flag).
+    """
+    assets = DIST_DIR / "assets"
+    if not assets.exists():
+        return (
+            "<!-- Vite build not found: run bash scripts/build_web.sh -->",
+            "",
+        )
+    base = "/static/dist/assets/"
+    css_files = sorted(assets.glob("*.css"))
+    js_files  = sorted(assets.glob("*.js"))
+    css_tag = "\n".join(f'<link rel="stylesheet" href="{base}{f.name}">' for f in css_files)
+    js_tag  = "\n".join(f'<script type="module" src="{base}{f.name}"></script>' for f in js_files)
+    return css_tag, js_tag
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +86,24 @@ def job_page(job_id: str):
     if job is None:
         return "Job not found", 404
     return render_template("job.html", job=job.to_dict())
+
+
+@app.get("/jobs/<job_id>/novelties")
+def novelty_browser_page(job_id: str):
+    job = registry.get(job_id)
+    if job is None:
+        return "Job not found", 404
+    side = job.params.get("side", "white")
+
+    # Read Vite manifest to get hashed asset filenames.
+    css_tag, js_tag = _vite_tags()
+    return render_template(
+        "novelty_browser.html",
+        job_id=job_id,
+        side=side,
+        css_tag=css_tag,
+        js_tag=js_tag,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +152,18 @@ def api_job(job_id: str):
     if job is None:
         return jsonify({"error": "not found"}), 404
     return jsonify(job.to_dict())
+
+
+@app.get("/api/jobs/<job_id>/novelties")
+def api_novelties(job_id: str):
+    job = registry.get(job_id)
+    if job is None:
+        return jsonify({"error": "not found"}), 404
+    if not job.out_path or not Path(job.out_path).exists():
+        return jsonify([])
+    root_fen = job.params.get("fen", chess.STARTING_FEN)
+    side = job.params.get("side", "white")
+    return jsonify(parse_novelties(job.out_path, root_fen, side))
 
 
 @app.get("/api/jobs/<job_id>/stream")

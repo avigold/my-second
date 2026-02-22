@@ -22,7 +22,14 @@
       "Bash(source .venv/bin/activate && mysecond search \\\\\n    --side white \\\\\n    --player Alireza2003 \\\\\n    --opponent DrNykterstein \\\\\n    --plies 30 \\\\\n    --beam 8 \\\\\n    --min-book-games 5 \\\\\n    --novelty-threshold 2 \\\\\n    --opponent-responses 3 \\\\\n    --depths 20,24 \\\\\n    --time-ms 200 \\\\\n    --min-eval 0 \\\\\n    --continuations 8 \\\\\n    --workers 4 \\\\\n    --max-positions 5000 \\\\\n    --max-candidates 100 \\\\\n    --min-player-games 3 \\\\\n    --min-opponent-games 3 \\\\\n    --player-speeds \"bullet,blitz,rapid,classical\" \\\\\n    --opponent-speeds \"bullet,blitz,rapid,classical\" \\\\\n    --out \"ideas_Alireza_vs_Carlsen.pgn\" 2>&1)",
       "Bash(python:*)",
       "Bash(grep:*)",
-      "Bash(true:*)"
+      "Bash(true:*)",
+      "WebSearch",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(tail:*)",
+      "Bash(npm show:*)",
+      "Bash(npm run:*)",
+      "Bash(cat:*)"
     ]
   }
 }

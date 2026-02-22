@@ -18,6 +18,11 @@
 
   <div class="flex gap-2 items-center">
     {% if job.command == 'search' %}
+    <a href="/jobs/{{ job.id }}/novelties"
+       class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
+       id="browse-btn">
+      Browse Novelties
+    </a>
     <a id="download-btn"
        href="/api/jobs/{{ job.id }}/download"
        class="btn-primary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
@@ -73,6 +78,8 @@ function markDone(status) {
   badge.textContent = status;
   badge.className = `status-${status} text-xs font-mono uppercase border border-current px-2 py-0.5 rounded`;
   if (status === 'done' && dlBtn) dlBtn.classList.remove('hidden');
+  const browseBtn = document.getElementById('browse-btn');
+  if (status === 'done' && browseBtn) browseBtn.classList.remove('hidden');
 }
 
 // Connect SSE only if job is/was running.

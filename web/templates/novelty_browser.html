@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mysecond – Novelty Browser</title>
+</head>
+<body>
+  {# The React app owns the full viewport — no base.html nav needed here. #}
+  {# job_id and side are read from data- attributes by main.jsx. #}
+  <div id="root"
+       data-job-id="{{ job_id }}"
+       data-side="{{ side }}">
+  </div>
+  {# Vite injects hashed asset names; we use a manifest approach via a glob. #}
+  {# For simplicity, server.py injects the actual filenames at render time. #}
+  {{ css_tag | safe }}
+  {{ js_tag  | safe }}
+</body>
+</html>
