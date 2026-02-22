@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/pytest:*)",
+      "Bash(.venv/bin/mysecond:*)",
+      "Bash(brew install:*)",
+      "Bash(bash:*)",
+      "Bash(source .venv/bin/activate && python3 -c \"\nimport chess, requests\n\n# Build the Ruy Lopez position move by move \\(what python-chess thinks the FEN is\\)\nboard = chess.Board\\(\\)\nfor mv in ['e2e4','e7e5','g1f3','b8c6','f1b5']:\n    board.push\\(chess.Move.from_uci\\(mv\\)\\)\nactual_fen = board.fen\\(\\)\nprint\\('python-chess FEN:', actual_fen\\)\n\nurl = 'https://explorer.lichess.ovh/masters'\n\n# Query with the derived FEN\nresp = requests.get\\(url, params={'fen': actual_fen}, timeout=10\\)\nd = resp.json\\(\\)\nprint\\('fen= total:', d.get\\('white',0\\)+d.get\\('draws',0\\)+d.get\\('black',0\\)\\)\nprint\\('moves:', [m['uci'] for m in d.get\\('moves',[]\\)[:5]]\\)\n\" 2>&1)",
+      "Bash(sqlite3:*)"
+    ]
+  }
+}
