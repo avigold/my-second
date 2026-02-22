@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import './chessground.base.css'
 import './chessground.brown.css'
+import './chessground.cburnett.css'
 import './index.css'
 
 const rootEl = document.getElementById('root')
