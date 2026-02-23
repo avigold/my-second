@@ -4,11 +4,28 @@
 {% block content %}
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-bold">Job History</h1>
-  <div class="flex gap-3">
-    <a href="/fetch" class="btn-secondary">Fetch Games</a>
-    <a href="/repertoire" class="btn-secondary">Extract Repertoire</a>
-    <a href="/habits" class="btn-secondary">Analyse Habits</a>
-    <a href="/search" class="btn-primary">Find Novelties</a>
+
+  <!-- New Job dropdown -->
+  <div style="position:relative;" id="new-job-menu">
+    <button onclick="toggleNewJobMenu()"
+            class="btn-secondary" style="gap:6px;">
+      New Job
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style="opacity:.7">
+        <path d="M6 8L1 3h10z"/>
+      </svg>
+    </button>
+    <div id="new-job-dropdown"
+         style="display:none;position:absolute;right:0;top:calc(100% + 6px);
+                background:#111827;border:1px solid #1f2937;border-radius:6px;
+                min-width:180px;z-index:50;overflow:hidden;
+                box-shadow:0 8px 24px rgba(0,0,0,.5);">
+      <a href="/fetch"      class="new-job-item">Fetch Games</a>
+      <a href="/repertoire" class="new-job-item">Extract Repertoire</a>
+      <div style="height:1px;background:#1f2937;margin:2px 0;"></div>
+      <a href="/habits"     class="new-job-item">Analyse Habits</a>
+      <a href="/strategise" class="new-job-item">Strategise</a>
+      <a href="/search"     class="new-job-item">Find Novelties</a>
+    </div>
   </div>
 </div>
 
@@ -46,7 +63,28 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+.new-job-item {
+  display: block;
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  color: #d1d5db;
+  text-decoration: none;
+  transition: background 0.1s;
+}
+.new-job-item:hover { background: #1f2937; color: #f3f4f6; }
+</style>
 <script>
+function toggleNewJobMenu() {
+  const dd = document.getElementById('new-job-dropdown');
+  dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', e => {
+  if (!document.getElementById('new-job-menu').contains(e.target)) {
+    document.getElementById('new-job-dropdown').style.display = 'none';
+  }
+});
+
 let allJobs = [];
 
 function applyFilter() {
