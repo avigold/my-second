@@ -31,6 +31,17 @@ from runner import build_fetch_argv, build_habits_argv, build_import_argv, build
 # Project root: parent of this file's directory (web/).
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
+
+# Auto-load .env so ANTHROPIC_API_KEY etc. are available without a manual export.
+_env_file = REPO_ROOT / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            _k = _k.strip()
+            if _k not in os.environ:          # don't override values already in env
+                os.environ[_k] = _v.strip()
 OUTPUT_DIR = DATA_DIR / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR = DATA_DIR / "uploads"

@@ -471,15 +471,45 @@ def _reachable_weaknesses(
     player_index: dict[str, dict[str, Any]],
     rank_limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Opponent habit inaccuracies where the FEN is in the player's cache."""
+    """Opponent habit inaccuracies reachable from the player's repertoire.
+
+    player_index has WHITE-to-move FENs; opponent habit FENs are BLACK-to-move.
+    We build the set of positions reachable after the player plays any listed
+    move, then check which opponent habits land in that set.
+    """
+    # Build set of black-to-move FENs reachable after one player move.
+    # Limit to the 2000 most-played positions to keep computation fast.
+    top_positions = sorted(
+        player_index.items(),
+        key=lambda kv: kv[1].get("white", 0) + kv[1].get("draws", 0) + kv[1].get("black", 0),
+        reverse=True,
+    )[:2000]
+
+    reachable_fens: set[str] = set()
+    for fen, payload in top_positions:
+        try:
+            board = chess.Board(fen)
+        except ValueError:
+            continue
+        for move_data in payload.get("moves", []):
+            uci = move_data.get("uci", "")
+            if not uci:
+                continue
+            try:
+                b = board.copy()
+                b.push(chess.Move.from_uci(uci))
+                reachable_fens.add(b.fen())
+            except Exception:
+                continue
+
     results = []
     for rank, habit in enumerate(opponent_habits, 1):
-        reachable = habit.fen in player_index
+        if habit.fen not in reachable_fens:
+            continue
         d = _habit_to_dict(habit)
         d["rank"] = rank
-        d["reachable_from_player"] = reachable
-        if reachable:
-            results.append(d)
+        d["reachable_from_player"] = True
+        results.append(d)
         if len(results) >= rank_limit:
             break
     return results
@@ -490,16 +520,24 @@ def _prep_gaps(
     opponent_index: dict[str, dict[str, Any]],
     rank_limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Player habit inaccuracies where the opponent also has data at that FEN."""
+    """Player habit inaccuracies where the opponent has data in the resulting position.
+
+    player_index has WHITE-to-move FENs; opponent_index has BLACK-to-move FENs.
+    After the player plays their habit move the position becomes black-to-move,
+    which is what we look up in opponent_index.
+    """
     results = []
     for rank, habit in enumerate(player_habits, 1):
-        opp_payload = opponent_index.get(habit.fen)
+        try:
+            board = chess.Board(habit.fen)
+            board.push(chess.Move.from_uci(habit.player_move_uci))
+            resulting_fen = board.fen()
+        except Exception:
+            continue
+        opp_payload = opponent_index.get(resulting_fen)
         if opp_payload is None:
             continue
-        o_w = opp_payload.get("white", 0)
-        o_d = opp_payload.get("draws", 0)
-        o_b = opp_payload.get("black", 0)
-        o_total = o_w + o_d + o_b
+        o_total = opp_payload.get("white", 0) + opp_payload.get("draws", 0) + opp_payload.get("black", 0)
         d = _habit_to_dict(habit)
         d["rank"] = rank
         d["opponent_games_here"] = o_total
