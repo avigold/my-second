@@ -5,14 +5,30 @@
 <div class="flex items-start justify-between mb-6">
   <div class="flex items-start gap-4">
 
-    {# Avatar — shown for any job that has a username param #}
-    {% if job.params.username %}
+    {# Determine the white player's username + platform for the avatar.
+       Search jobs use player/opponent fields; all others use username. #}
+    {% if job.command == 'search' %}
+      {% if job.params.side == 'white' %}
+        {% set _au = job.params.player | default('') %}
+        {% set _ap = job.params.player_platform | default('lichess') %}
+      {% else %}
+        {% set _au = job.params.opponent | default('') %}
+        {% set _ap = job.params.opponent_platform | default('lichess') %}
+      {% endif %}
+    {% else %}
+      {% set _au = job.params.username | default('') %}
+      {% set _ap = job.params.platform | default('lichess') %}
+    {% endif %}
+
+    {# Avatar circle #}
+    {% if _au %}
     <div id="user-avatar"
+         data-username="{{ _au }}" data-platform="{{ _ap }}"
          style="width:48px;height:48px;border-radius:50%;background:#1f2937;
                 display:flex;align-items:center;justify-content:center;
                 font-size:18px;font-weight:700;color:#9ca3af;
                 overflow:hidden;flex-shrink:0;border:1px solid #374151;">
-      {{ job.params.username[0].upper() }}
+      {{ _au[0].upper() }}
     </div>
     {% endif %}
 
@@ -32,11 +48,10 @@
         </span>
       </div>
       <p class="text-gray-500 text-xs font-mono">{{ job.id }}</p>
-      {% if job.params.username %}
+      {% if _au %}
       <p class="text-gray-500 text-xs mt-0.5">
-        {{ job.params.username }}
+        {{ _au }}{% if _ap %} · {{ _ap }}{% endif %}
         {% if job.params.color %} · {{ job.params.color }}{% endif %}
-        {% if job.params.platform %} · {{ job.params.platform }}{% endif %}
       </p>
       {% endif %}
     </div>
@@ -131,20 +146,17 @@ const JOB_ID     = {{ job.id | tojson }};
 const JOB_STATUS = {{ job.status | tojson }};
 
 // ── Avatar ──────────────────────────────────────────────────────────────────
-{% if job.params.username %}
 (function () {
-  const platform = {{ (job.params.platform or 'lichess') | tojson }};
-  const username = {{ job.params.username | tojson }};
-  if (platform !== 'chesscom') return;  // Lichess has no user avatars
-
+  const el = document.getElementById('user-avatar');
+  if (!el) return;
+  const username = el.dataset.username;
+  const platform = el.dataset.platform;
+  if (!username || platform !== 'chesscom') return;
   fetch(`https://api.chess.com/pub/player/${username}`)
     .then(r => r.ok ? r.json() : null)
     .then(data => {
       if (!data?.avatar) return;
-      const el = document.getElementById('user-avatar');
-      if (!el) return;
       el.style.background = 'transparent';
-      el.style.padding = '0';
       el.innerHTML = '';
       const img = document.createElement('img');
       img.src = data.avatar;
@@ -154,7 +166,6 @@ const JOB_STATUS = {{ job.status | tojson }};
     })
     .catch(() => {});
 })();
-{% endif %}
 // ────────────────────────────────────────────────────────────────────────────
 
 const logEl    = document.getElementById('log-output');
