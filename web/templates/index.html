@@ -46,13 +46,26 @@ async function loadJobs() {
       ? `<a href="/api/jobs/${j.id}/download" class="text-amber-400 text-xs hover:underline ml-2">↓ PGN</a>`
       : '';
 
-    const avatarContent = j.params.username ? j.params.username[0].toUpperCase() : '';
-    const avatar = j.params.username
-      ? `<div class="job-avatar" data-username="${j.params.username}" data-platform="${j.params.platform || 'lichess'}"
+    // Determine white player for avatar (search jobs use player/opponent fields)
+    let avatarUser, avatarPlatform;
+    if (j.command === 'search') {
+      if (j.params.side === 'white') {
+        avatarUser     = j.params.player || '';
+        avatarPlatform = j.params.player_platform || 'lichess';
+      } else {
+        avatarUser     = j.params.opponent || '';
+        avatarPlatform = j.params.opponent_platform || 'lichess';
+      }
+    } else {
+      avatarUser     = j.params.username || '';
+      avatarPlatform = j.params.platform || 'lichess';
+    }
+    const avatar = avatarUser
+      ? `<div class="job-avatar" data-username="${avatarUser}" data-platform="${avatarPlatform}"
               style="width:36px;height:36px;border-radius:50%;background:#1f2937;flex-shrink:0;
                      display:flex;align-items:center;justify-content:center;
                      font-size:14px;font-weight:700;color:#9ca3af;
-                     overflow:hidden;border:1px solid #374151;">${avatarContent}</div>`
+                     overflow:hidden;border:1px solid #374151;">${avatarUser[0].toUpperCase()}</div>`
       : `<div style="width:36px;height:36px;flex-shrink:0;"></div>`;
 
     return `
