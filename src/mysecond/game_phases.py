@@ -92,8 +92,6 @@ def analyze_game_phases(
 
     if verbose:
         print(f"{tag} Downloading up to {max_games} games for phase analysis ({platform}) …", flush=True)
-    print(f"[progress:phases:{username}] 0/{max_games}", flush=True)
-
     try:
         pgn_text = download_raw_pgn(username, color, platform, speeds, max_games)
     except Exception as exc:
@@ -184,9 +182,6 @@ def analyze_game_phases(
                     f"endgame reached: {eg_pct}",
                     flush=True,
                 )
-            print(f"[progress:phases:{username}] {games_processed}/{max_games}", flush=True)
-
-    print(f"[progress:phases:{username}] {games_processed}/{max_games}", flush=True)
 
     if verbose:
         print(
