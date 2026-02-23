@@ -13,30 +13,29 @@
 </div>
 
 <!-- Filter bar -->
-<div class="flex flex-wrap items-center gap-2 mb-1">
+<div class="flex items-center gap-2 mb-1">
   <input type="text" id="search-query"
-         class="form-input" style="width:190px;flex-shrink:0;"
+         class="form-input" style="width:200px;flex-shrink:0;"
          placeholder="Filter by player…"
          oninput="applyFilter()">
 
-  <!-- Command chips -->
-  <div class="flex gap-1 flex-wrap">
-    <button class="filter-chip active" data-filter="command" data-value=""            onclick="setFilter('command','')">All</button>
-    <button class="filter-chip"        data-filter="command" data-value="fetch"       onclick="setFilter('command','fetch')">Fetch</button>
-    <button class="filter-chip"        data-filter="command" data-value="search"      onclick="setFilter('command','search')">Novelties</button>
-    <button class="filter-chip"        data-filter="command" data-value="habits"      onclick="setFilter('command','habits')">Habits</button>
-    <button class="filter-chip"        data-filter="command" data-value="repertoire"  onclick="setFilter('command','repertoire')">Repertoire</button>
-    <button class="filter-chip"        data-filter="command" data-value="import"      onclick="setFilter('command','import')">Import</button>
-    <button class="filter-chip"        data-filter="command" data-value="strategise"  onclick="setFilter('command','strategise')">Strategise</button>
-  </div>
+  <select id="filter-command" class="form-input" style="width:150px;flex-shrink:0;" onchange="applyFilter()">
+    <option value="">All types</option>
+    <option value="fetch">Fetch</option>
+    <option value="search">Find Novelties</option>
+    <option value="habits">Habits</option>
+    <option value="repertoire">Repertoire</option>
+    <option value="strategise">Strategise</option>
+    <option value="import">Import</option>
+  </select>
 
-  <!-- Status chips -->
-  <div class="flex gap-1 flex-wrap ml-auto">
-    <button class="filter-chip active" data-filter="status" data-value=""         onclick="setFilter('status','')">Any status</button>
-    <button class="filter-chip"        data-filter="status" data-value="done"     onclick="setFilter('status','done')">Done</button>
-    <button class="filter-chip"        data-filter="status" data-value="running"  onclick="setFilter('status','running')">Running</button>
-    <button class="filter-chip"        data-filter="status" data-value="failed"   onclick="setFilter('status','failed')">Failed</button>
-  </div>
+  <select id="filter-status" class="form-input" style="width:130px;flex-shrink:0;" onchange="applyFilter()">
+    <option value="">Any status</option>
+    <option value="done">Done</option>
+    <option value="running">Running</option>
+    <option value="failed">Failed</option>
+    <option value="cancelled">Cancelled</option>
+  </select>
 </div>
 
 <p id="filter-count" class="text-xs text-gray-600 mb-3" style="display:none;"></p>
@@ -47,45 +46,18 @@
 {% endblock %}
 
 {% block scripts %}
-<style>
-  .filter-chip {
-    padding: 3px 10px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 500;
-    border: 1px solid #374151;
-    background: #1f2937;
-    color: #6b7280;
-    cursor: pointer;
-    transition: color 0.1s, border-color 0.1s, background 0.1s;
-    white-space: nowrap;
-  }
-  .filter-chip:hover { color: #d1d5db; border-color: #4b5563; }
-  .filter-chip.active {
-    background: rgba(245,158,11,0.12);
-    border-color: rgba(245,158,11,0.45);
-    color: #fbbf24;
-  }
-</style>
 <script>
 let allJobs = [];
-const filter = { command: '', status: '', query: '' };
-
-function setFilter(key, value) {
-  filter[key] = value;
-  document.querySelectorAll(`.filter-chip[data-filter="${key}"]`).forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.value === value);
-  });
-  applyFilter();
-}
 
 function applyFilter() {
-  filter.query = document.getElementById('search-query').value.trim().toLowerCase();
+  const query   = document.getElementById('search-query').value.trim().toLowerCase();
+  const command = document.getElementById('filter-command').value;
+  const status  = document.getElementById('filter-status').value;
 
   const filtered = allJobs.filter(j => {
-    if (filter.command && j.command !== filter.command) return false;
-    if (filter.status  && j.status  !== filter.status)  return false;
-    if (filter.query) {
+    if (command && j.command !== command) return false;
+    if (status  && j.status  !== status)  return false;
+    if (query) {
       const haystack = [
         j.params.username,
         j.params.player,
@@ -98,7 +70,7 @@ function applyFilter() {
         j.command,
         j.id,
       ].filter(Boolean).join(' ').toLowerCase();
-      if (!haystack.includes(filter.query)) return false;
+      if (!haystack.includes(query)) return false;
     }
     return true;
   });
@@ -106,7 +78,7 @@ function applyFilter() {
   renderJobList(filtered);
 
   const countEl = document.getElementById('filter-count');
-  const isFiltered = filter.command || filter.status || filter.query;
+  const isFiltered = command || status || query;
   if (isFiltered && allJobs.length > 0) {
     countEl.textContent = `Showing ${filtered.length} of ${allJobs.length} jobs`;
     countEl.style.display = 'block';
