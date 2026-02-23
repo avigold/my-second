@@ -94,12 +94,12 @@ export default function RepertoireApp({ jobId, side }) {
         fontFamily: 'monospace',
         fontSize: 13,
       }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #1f2937' }}>
-          <span style={{ color: '#9ca3af', fontSize: 12 }}>
-            Repertoire · job {jobId.slice(0, 8)}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ color: '#9ca3af', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+            Repertoire · {jobId.slice(0, 8)}
           </span>
           <a href={`/jobs/${jobId}`}
-             style={{ float: 'right', color: '#6b7280', fontSize: 12, textDecoration: 'none' }}>
+             style={{ color: '#6b7280', fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>
             ← Job log
           </a>
         </div>
