@@ -104,23 +104,21 @@ def analyze_habits(
     """
     backend = _backend_key(username, color, speeds, platform=platform)
     player_color = chess.WHITE if color == "white" else chess.BLACK
+    tag = f"[habits:{username}]"
 
     if verbose:
-        print(f"[habits] Scanning cache for {username} ({color}, {platform}, {speeds}) …", flush=True)
+        print(f"{tag} Scanning cache ({color}, {platform}, {speeds}) …", flush=True)
 
     all_positions = cache.scan_backend(backend)
     # Exclude metadata entries (keys starting with _).
     all_positions = [(f, p) for f, p in all_positions if not f.startswith("_")]
 
     if verbose:
-        print(f"[habits] {len(all_positions)} cached positions found.", flush=True)
+        print(f"{tag} {len(all_positions)} cached positions found.", flush=True)
 
     if not all_positions:
         if verbose:
-            print(
-                f"[habits] No cached data found — fetching games from {platform} first …",
-                flush=True,
-            )
+            print(f"{tag} No cached data — fetching from {platform} …", flush=True)
         if platform == "chesscom":
             fetch_player_games_chesscom(
                 username=username,
@@ -141,7 +139,7 @@ def analyze_habits(
         all_positions = [(f, p) for f, p in all_positions if not f.startswith("_")]
         if not all_positions:
             if verbose:
-                print("[habits] No games found after fetch — check username and speeds.", flush=True)
+                print(f"{tag} No games found after fetch — check username and speeds.", flush=True)
             return []
 
     # Collect every (fen, payload, move_data) triple where the position was
@@ -165,15 +163,12 @@ def analyze_habits(
 
     if verbose:
         print(
-            f"[habits] {len(by_fen)} positions with ≥{min_games} games; "
+            f"{tag} {len(by_fen)} positions with ≥{min_games} games; "
             f"{total_pairs} (position, move) pairs to evaluate …",
             flush=True,
         )
 
     # Pre-sort by total game count descending and cap the evaluation queue.
-    # Positions reached more often have higher maximum possible score, so
-    # evaluating the top N * 5 is a good heuristic that avoids spending
-    # hours on thousands of rarely-reached positions.
     eval_cap = max_positions * 5
     sorted_fens = sorted(
         by_fen.items(),
@@ -182,7 +177,7 @@ def analyze_habits(
     )
     if len(sorted_fens) > eval_cap:
         if verbose:
-            print(f"[habits] Capping evaluation to top {eval_cap} most-frequent positions.", flush=True)
+            print(f"{tag} Capping to top {eval_cap} most-frequent positions.", flush=True)
         sorted_fens = sorted_fens[:eval_cap]
 
     results: list[HabitInaccuracy] = []
@@ -275,7 +270,7 @@ def analyze_habits(
 
             if verbose and i % 10 == 0:
                 print(
-                    f"  … {i}/{len(sorted_fens)} positions evaluated, "
+                    f"{tag} {i}/{len(sorted_fens)} positions evaluated, "
                     f"{len(results)} inaccuracies so far",
                     flush=True,
                 )
@@ -284,7 +279,7 @@ def analyze_habits(
     results = results[:max_positions]
 
     if verbose:
-        print(f"[habits] Done. {len(results)} habit inaccuracies found.", flush=True)
+        print(f"{tag} Done — {len(results)} habit inaccuracies found.", flush=True)
 
     return results
 
