@@ -49,7 +49,7 @@ def strategise(
     min_games: int = 5,
     max_positions: int = 30,
     min_eval_gap: int = 25,
-    depth: int = 18,
+    depth: int = 12,
     anthropic_api_key: str | None = None,
     verbose: bool = True,
 ) -> dict[str, Any]:

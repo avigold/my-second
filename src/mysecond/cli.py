@@ -891,7 +891,7 @@ def extract_repertoire_cmd(
 @click.option("--min-games",        "min_games",      default=5,   show_default=True)
 @click.option("--max-positions",    "max_positions",  default=30,  show_default=True)
 @click.option("--min-eval-gap",     "min_eval_gap",   default=25,  show_default=True)
-@click.option("--depth",            default=18, show_default=True)
+@click.option("--depth",            default=12, show_default=True)
 @click.option("--out",              "out_path",        default="strategise.json", show_default=True)
 @click.option("--api-key",          "anthropic_api_key",
               default=None, envvar="ANTHROPIC_API_KEY",

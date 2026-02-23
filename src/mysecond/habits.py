@@ -169,10 +169,25 @@ def analyze_habits(
             flush=True,
         )
 
+    # Pre-sort by total game count descending and cap the evaluation queue.
+    # Positions reached more often have higher maximum possible score, so
+    # evaluating the top N * 5 is a good heuristic that avoids spending
+    # hours on thousands of rarely-reached positions.
+    eval_cap = max_positions * 5
+    sorted_fens = sorted(
+        by_fen.items(),
+        key=lambda kv: kv[1][0].get("white", 0) + kv[1][0].get("draws", 0) + kv[1][0].get("black", 0),
+        reverse=True,
+    )
+    if len(sorted_fens) > eval_cap:
+        if verbose:
+            print(f"[habits] Capping evaluation to top {eval_cap} most-frequent positions.", flush=True)
+        sorted_fens = sorted_fens[:eval_cap]
+
     results: list[HabitInaccuracy] = []
 
     with Engine(engine_path) as eng:
-        for i, (fen, (payload, qualifying_moves)) in enumerate(by_fen.items(), 1):
+        for i, (fen, (payload, qualifying_moves)) in enumerate(sorted_fens, 1):
             total = payload.get("white", 0) + payload.get("draws", 0) + payload.get("black", 0)
 
             try:
@@ -249,7 +264,7 @@ def analyze_habits(
 
             if verbose and i % 10 == 0:
                 print(
-                    f"  … {i}/{len(by_fen)} positions evaluated, "
+                    f"  … {i}/{len(sorted_fens)} positions evaluated, "
                     f"{len(results)} inaccuracies so far",
                     flush=True,
                 )

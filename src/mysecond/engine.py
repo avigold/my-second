@@ -9,6 +9,9 @@ from pathlib import Path
 import chess
 import chess.engine
 
+# Use most available cores, leaving one free for the OS / web server.
+_DEFAULT_THREADS = max(1, (os.cpu_count() or 1) - 1)
+
 
 def find_stockfish() -> Path:
     """Return the path to the Stockfish binary.
@@ -42,9 +45,11 @@ class Engine:
     Not thread-safe: each thread must own its own Engine instance.
     """
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, threads: int = _DEFAULT_THREADS) -> None:
         self._path = path or find_stockfish()
         self._engine = chess.engine.SimpleEngine.popen_uci(str(self._path))
+        if threads > 1:
+            self._engine.configure({"Threads": threads})
 
     # ------------------------------------------------------------------
     # Public analysis API
