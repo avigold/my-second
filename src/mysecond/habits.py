@@ -70,6 +70,7 @@ def analyze_habits(
     min_eval_gap: int = 25,
     depth: int = 20,
     verbose: bool = True,
+    engine_threads: int | None = None,
 ) -> list[HabitInaccuracy]:
     """Find positions where the player habitually plays a suboptimal move.
 
@@ -186,7 +187,7 @@ def analyze_habits(
 
     results: list[HabitInaccuracy] = []
 
-    with Engine(engine_path) as eng:
+    with Engine(engine_path, threads=engine_threads) as eng:
         for i, (fen, (payload, qualifying_moves)) in enumerate(sorted_fens, 1):
             total = payload.get("white", 0) + payload.get("draws", 0) + payload.get("black", 0)
 
@@ -199,21 +200,27 @@ def analyze_habits(
             if board.turn != player_color:
                 continue
 
-            # One engine call per position: finds best move and best eval.
-            info = eng.analyse_single(board, depth=depth)
-            if "pv" not in info or not info["pv"]:
+            # One MultiPV call replaces 1 + len(qualifying_moves) separate calls.
+            # Request enough lines to cover all qualifying moves plus the best move.
+            multipv_k = min(max(len(qualifying_moves) + 1, 5), 20)
+            infos = eng.analyse_multipv(board, depth=depth, multipv=multipv_k)
+            if not infos or not infos[0].get("pv"):
                 continue
 
-            best_move = info["pv"][0]
+            best_move = infos[0]["pv"][0]
             if best_move not in board.legal_moves:
                 continue
 
-            # best_cp: eval from this position following the engine's best line,
-            # from the player's POV.  Use the score returned directly from the
-            # position analysis — no need to re-evaluate after pushing best_move.
             best_cp = float(
-                info["score"].pov(player_color).score(mate_score=10_000) or 0
+                infos[0]["score"].pov(player_color).score(mate_score=10_000) or 0
             )
+
+            # Build a UCI → eval_cp lookup from the MultiPV results.
+            multipv_evals: dict[str, float] = {}
+            for info in infos:
+                if info.get("pv"):
+                    cp = float(info["score"].pov(player_color).score(mate_score=10_000) or 0)
+                    multipv_evals[info["pv"][0].uci()] = cp
 
             # Evaluate each qualifying player move and flag if suboptimal.
             for move_data in qualifying_moves:
@@ -233,11 +240,15 @@ def analyze_habits(
                     + move_data.get("black", 0)
                 )
 
-                # Eval after the player's move (opponent to move; convert to player's POV).
-                board_after = board.copy()
-                board_after.push(player_move)
-                info_after = eng.analyse_single(board_after, depth=depth)
-                player_cp = _cp_pov(info_after["score"], player_color)
+                # Use MultiPV eval directly; fall back to a separate call only if
+                # the player's move wasn't covered (outside top multipv_k moves).
+                if player_uci in multipv_evals:
+                    player_cp = multipv_evals[player_uci]
+                else:
+                    board_after = board.copy()
+                    board_after.push(player_move)
+                    info_after = eng.analyse_single(board_after, depth=depth)
+                    player_cp = _cp_pov(info_after["score"], player_color)
 
                 eval_gap = best_cp - player_cp
                 if eval_gap < min_eval_gap:

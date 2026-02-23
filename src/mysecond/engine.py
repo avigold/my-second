@@ -45,11 +45,12 @@ class Engine:
     Not thread-safe: each thread must own its own Engine instance.
     """
 
-    def __init__(self, path: Path | None = None, threads: int = _DEFAULT_THREADS) -> None:
+    def __init__(self, path: Path | None = None, threads: int | None = None) -> None:
         self._path = path or find_stockfish()
         self._engine = chess.engine.SimpleEngine.popen_uci(str(self._path))
-        if threads > 1:
-            self._engine.configure({"Threads": threads})
+        t = threads if threads is not None else _DEFAULT_THREADS
+        if t > 1:
+            self._engine.configure({"Threads": t})
 
     # ------------------------------------------------------------------
     # Public analysis API

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,9 @@ from .cache import Cache
 from .engine import Engine
 from .fetcher import _backend_key, fetch_player_games, fetch_player_games_chesscom
 from .habits import HabitInaccuracy, analyze_habits
+
+# When running two habit analyses in parallel each gets half the cores.
+_PARALLEL_THREADS = max(1, (os.cpu_count() or 2) // 2)
 
 
 # ---------------------------------------------------------------------------
@@ -83,26 +88,25 @@ def strategise(
          f"[strategise] {len(player_index)} positions for {player}, "
          f"{len(opponent_index)} for {opponent}.")
 
-    # ── 2. Habit analysis ────────────────────────────────────────────────────
-    _log(verbose, f"[strategise] Analysing habits for opponent {opponent} …")
-    opponent_habits = analyze_habits(
-        username=opponent, color=opponent_color, cache=cache,
-        engine_path=engine_path, speeds=opponent_speeds,
-        platform=opponent_platform, min_games=min_games,
-        max_positions=max_positions, min_eval_gap=min_eval_gap,
-        depth=depth, verbose=verbose,
-    )
-    _log(verbose, f"[strategise] {len(opponent_habits)} opponent habit inaccuracies found.")
+    # ── 2. Habit analysis (both players in parallel) ─────────────────────────
+    _log(verbose, f"[strategise] Analysing habits for {player} and {opponent} in parallel …")
 
-    _log(verbose, f"[strategise] Analysing habits for player {player} …")
-    player_habits = analyze_habits(
-        username=player, color=player_color, cache=cache,
-        engine_path=engine_path, speeds=player_speeds,
-        platform=player_platform, min_games=min_games,
-        max_positions=max_positions, min_eval_gap=min_eval_gap,
-        depth=depth, verbose=verbose,
-    )
-    _log(verbose, f"[strategise] {len(player_habits)} player habit inaccuracies found.")
+    def _habits(username, color, speeds, platform):
+        return analyze_habits(
+            username=username, color=color, cache=cache,
+            engine_path=engine_path, speeds=speeds, platform=platform,
+            min_games=min_games, max_positions=max_positions,
+            min_eval_gap=min_eval_gap, depth=depth, verbose=verbose,
+            engine_threads=_PARALLEL_THREADS,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        opp_future = pool.submit(_habits, opponent, opponent_color, opponent_speeds, opponent_platform)
+        plr_future = pool.submit(_habits, player,   player_color,   player_speeds,   player_platform)
+        opponent_habits = opp_future.result()
+        player_habits   = plr_future.result()
+
+    _log(verbose, f"[strategise] {len(opponent_habits)} opponent + {len(player_habits)} player habit inaccuracies found.")
 
     # ── 3. Style profiles ────────────────────────────────────────────────────
     _log(verbose, "[strategise] Computing style profiles …")
