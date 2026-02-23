@@ -331,13 +331,19 @@ if (JOB_STATUS === 'running') {
     es.close();
   };
 } else {
-  // Job already finished: load stored log via SSE replay (or just show status).
+  // Job already finished: buffer all replayed lines, then set textContent once.
+  // Doing textContent += per-line is O(n²) and forces a reflow each time —
+  // with thousands of log lines this freezes the browser.
+  const replayBuf = [];
   const es = new EventSource(`/api/jobs/${JOB_ID}/stream`);
   es.onmessage = (e) => {
-    const { line } = JSON.parse(e.data);
-    appendLine(line);
+    replayBuf.push(JSON.parse(e.data).line);
   };
-  es.addEventListener('done', () => es.close());
+  es.addEventListener('done', () => {
+    es.close();
+    logEl.textContent = replayBuf.join('\n');
+    if (autoChk.checked) logEl.scrollTop = logEl.scrollHeight;
+  });
 }
 </script>
 {% endblock %}
