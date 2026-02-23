@@ -350,10 +350,9 @@ async function loadDashboard() {
 
   // Stats
   const statsEl = document.getElementById('stats-row');
-  const habitRuns   = stats.job_counts?.habits || 0;
   statsEl.innerHTML =
     statCard(stats.done_jobs,       'Jobs Completed',  '#fbbf24') +
-    statCard(habitRuns,             'Habits Analysed', '#f87171') +
+    statCard(stats.total_habits,    'Habits Analysed', '#f87171') +
     statCard(stats.total_novelties, 'Novelties Found', '#4ade80');
 
   // Habits panel

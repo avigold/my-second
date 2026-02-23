@@ -176,23 +176,27 @@ def api_dashboard():
         "users":       sorted(users)[:10],
     }
 
-    # Top habits from the most recent completed habits job
+    # Top habits + total count across all completed habits jobs
     top_habits: list = []
-    habits_job = next(
-        (j for j in all_jobs
-         if j["command"] == "habits" and j["status"] == "done" and j.get("out_path")),
-        None,
-    )
-    if habits_job:
+    total_habits = 0
+    habits_jobs = [
+        j for j in all_jobs
+        if j["command"] == "habits" and j["status"] == "done" and j.get("out_path")
+    ]
+    for hj in habits_jobs:
         try:
-            items = parse_habits(habits_job["out_path"])[:5]
-            for h in items:
-                h["job_id"]   = habits_job["id"]
-                h["username"] = (habits_job.get("params") or {}).get("username", "")
-                h["color"]    = (habits_job.get("params") or {}).get("color", "white")
-            top_habits = items
+            items = parse_habits(hj["out_path"])
+            total_habits += len(items)
+            if not top_habits:
+                for h in items[:5]:
+                    h["job_id"]   = hj["id"]
+                    h["username"] = (hj.get("params") or {}).get("username", "")
+                    h["color"]    = (hj.get("params") or {}).get("color", "white")
+                top_habits = items[:5]
         except Exception:
             pass
+
+    stats["total_habits"] = total_habits
 
     # Top novelties + total count across all completed search jobs
     top_novelties: list = []
