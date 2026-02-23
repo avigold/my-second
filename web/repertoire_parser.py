@@ -51,7 +51,10 @@ def _compute_tree_stats(root: dict[str, Any]) -> dict[str, Any]:
     """Walk the tree and compute aggregate statistics."""
     total = player = opponent = leaves = 0
     max_depth = 0
-    depth_counts: dict[int, int] = {}
+
+    # quality_by_depth: depth -> {wins, draws, losses, games}
+    # Only populated for player-move nodes that have WDL data.
+    quality_acc: dict[int, dict[str, int]] = {}
 
     stack = [root]
     while stack:
@@ -60,22 +63,43 @@ def _compute_tree_stats(root: dict[str, Any]) -> dict[str, Any]:
         d = node["depth"]
         if d > max_depth:
             max_depth = d
-        depth_counts[d] = depth_counts.get(d, 0) + 1
         if node["is_player_move"]:
             player += 1
+            freq = node.get("freq")
+            if freq and freq.get("wins") is not None:
+                if d not in quality_acc:
+                    quality_acc[d] = {"wins": 0, "draws": 0, "losses": 0}
+                quality_acc[d]["wins"]   += freq["wins"]
+                quality_acc[d]["draws"]  += freq["draws"]
+                quality_acc[d]["losses"] += freq["losses"]
         elif node["move_san"]:
             opponent += 1
         if not node["children"]:
             leaves += 1
         stack.extend(node["children"])
 
+    # Convert accumulated WDL to a score (0–100) per depth.
+    # score = (wins + 0.5 * draws) / total * 100
+    quality_by_depth: dict[int, dict[str, Any]] = {}
+    for depth, q in sorted(quality_acc.items()):
+        wdl_total = q["wins"] + q["draws"] + q["losses"]
+        if wdl_total > 0:
+            score = (q["wins"] + q["draws"] * 0.5) / wdl_total * 100
+            quality_by_depth[depth] = {
+                "score":  round(score, 1),
+                "wins":   q["wins"],
+                "draws":  q["draws"],
+                "losses": q["losses"],
+                "total":  wdl_total,
+            }
+
     return {
-        "total_positions": total,
-        "player_moves":    player,
-        "opponent_moves":  opponent,
-        "leaf_count":      leaves,
-        "max_depth":       max_depth,
-        "depth_counts":    depth_counts,
+        "total_positions":  total,
+        "player_moves":     player,
+        "opponent_moves":   opponent,
+        "leaf_count":       leaves,
+        "max_depth":        max_depth,
+        "quality_by_depth": quality_by_depth,
     }
 
 

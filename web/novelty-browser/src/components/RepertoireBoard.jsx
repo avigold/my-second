@@ -82,20 +82,12 @@ function StatsPanel({ node, treeStats, orientation }) {
     : null
   const solidity = hasWdl && wdlTotal > 0 ? winPct + drawPct : null
 
-  // Depth chart — skip depth 0 (root)
-  const depthEntries = treeStats
-    ? Object.entries(treeStats.depth_counts)
-        .map(([d, c]) => [Number(d), c])
-        .filter(([d]) => d > 0)
+  // Quality by depth entries — player moves only, sorted by depth
+  const qualityEntries = treeStats?.quality_by_depth
+    ? Object.entries(treeStats.quality_by_depth)
+        .map(([d, q]) => [Number(d), q])
         .sort((a, b) => a[0] - b[0])
     : []
-  const maxCount = depthEntries.reduce((m, [, c]) => Math.max(m, c), 1)
-
-  // Which depths are "player" depths?
-  // White player: moves at odd ply (depth 1,3,5,…)
-  // Black player: moves at even ply (depth 2,4,6,…)
-  const isPlayerDepth = (d) =>
-    orientation === 'white' ? d % 2 === 1 : d % 2 === 0
 
   return (
     <div style={{
@@ -188,43 +180,48 @@ function StatsPanel({ node, treeStats, orientation }) {
             <MetricChip label="Max depth"  value={`${treeStats.max_depth}p`}  color="#60a5fa" />
           </div>
 
-          {/* Depth distribution chart */}
-          <div style={{ color: '#6b7280', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-            Depth distribution
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {depthEntries.map(([depth, count]) => {
-              const isPlayer = isPlayerDepth(depth)
-              const barColor = isPlayer ? '#f59e0b' : '#3b82f6'
-              return (
-                <div key={depth} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{
-                    width: 16, textAlign: 'right', fontSize: 10,
-                    color: isPlayer ? '#f59e0b99' : '#3b82f699', flexShrink: 0,
-                  }}>
-                    {depth}
-                  </span>
-                  <div style={{ flex: 1, background: '#1e2d45', borderRadius: 3, height: 10, overflow: 'hidden' }}>
-                    <div style={{
-                      width: `${(count / maxCount) * 100}%`,
-                      height: '100%',
-                      background: barColor,
-                      borderRadius: 3,
-                      transition: 'width 0.35s',
-                      opacity: 0.85,
-                    }} />
-                  </div>
-                  <span style={{ width: 22, fontSize: 10, color: '#4b5563', textAlign: 'right' }}>{count}</span>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Legend */}
-          <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 10, color: '#4b5563' }}>
-            <span><span style={{ color: '#f59e0b' }}>▬</span> Your moves</span>
-            <span><span style={{ color: '#3b82f6' }}>▬</span> Opponent moves</span>
-          </div>
+          {/* Prep quality by depth */}
+          {qualityEntries.length > 0 ? (
+            <>
+              <div style={{ color: '#6b7280', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                Prep quality by depth
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {qualityEntries.map(([depth, q]) => {
+                  const score = q.score
+                  const barColor = score >= 55 ? '#22c55e' : score >= 45 ? '#f59e0b' : '#ef4444'
+                  const labelColor = score >= 55 ? '#4ade80' : score >= 45 ? '#fbbf24' : '#f87171'
+                  return (
+                    <div key={depth} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 32, textAlign: 'right', fontSize: 10, color: '#4b5563', flexShrink: 0 }}>
+                        ply {depth}
+                      </span>
+                      <div style={{ flex: 1, background: '#1e2d45', borderRadius: 3, height: 10, overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${score}%`,
+                          height: '100%',
+                          background: barColor,
+                          borderRadius: 3,
+                          transition: 'width 0.35s',
+                          opacity: 0.85,
+                        }} />
+                      </div>
+                      <span style={{ width: 32, fontSize: 10, color: labelColor, textAlign: 'right', fontFamily: 'monospace' }}>
+                        {score.toFixed(0)}%
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+              <div style={{ fontSize: 10, color: '#4b5563', marginTop: 6 }}>
+                Performance score (wins + ½ draws) across all your moves at each ply
+              </div>
+            </>
+          ) : (
+            <div style={{ color: '#4b5563', fontSize: 11 }}>
+              Quality data available after running a new repertoire job.
+            </div>
+          )}
         </div>
       )}
     </div>
