@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+{% block title %}mysecond{% endblock %}
+{% block main_class %}max-w-6xl{% endblock %}
+{% block main_padding %}py-6{% endblock %}
+
+{% block content %}
+
+<!-- ─── Hero ─────────────────────────────────────────────────────── -->
+<section class="relative rounded-2xl overflow-hidden border border-gray-800 bg-gray-900 px-10 py-14 mb-10">
+  <!-- Subtle chess-board background -->
+  <div class="absolute inset-0 pointer-events-none"
+       style="background-image:repeating-conic-gradient(rgba(255,255,255,0.035) 0% 25%,transparent 0% 50%);background-size:36px 36px;"></div>
+  <!-- Amber radial glow, top-right -->
+  <div class="absolute top-0 right-0 w-96 h-96 pointer-events-none"
+       style="background:radial-gradient(circle at 80% 20%, rgba(245,158,11,0.12) 0%, transparent 60%);"></div>
+
+  <div class="relative z-10">
+    <div class="text-amber-400 text-4xl mb-4 select-none">♟</div>
+    <h1 class="text-4xl font-bold tracking-tight mb-3">Your Chess Second</h1>
+    <p class="text-gray-400 text-lg mb-8 max-w-xl leading-relaxed">
+      Uncover novelties. Break bad habits. Know your repertoire inside out.
+    </p>
+    <div class="flex flex-wrap gap-3">
+      <a href="/habits"     class="btn-primary">Analyse Habits</a>
+      <a href="/search"     class="btn-secondary">Search Novelties</a>
+      <a href="/repertoire" class="btn-secondary">Extract Repertoire</a>
+      <a href="/fetch"      class="btn-secondary">Fetch Games</a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Feature Cards ─────────────────────────────────────────────── -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
+
+  <a href="/fetch" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
+     style="background:#0f172a;border-color:#1f2937;">
+    <div class="text-2xl mb-3 opacity-80">♙</div>
+    <h3 class="font-semibold text-white text-sm mb-2 group-hover:text-amber-400 transition-colors">Fetch Games</h3>
+    <p class="text-gray-500 text-xs leading-relaxed">
+      Pull your game history from Lichess or Chess.com. Powers every other feature.
+    </p>
+  </a>
+
+  <a href="/search" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
+     style="background:#0f172a;border-color:#1f2937;">
+    <div class="text-2xl mb-3 opacity-80">♕</div>
+    <h3 class="font-semibold text-white text-sm mb-2 group-hover:text-amber-400 transition-colors">Search Novelties</h3>
+    <p class="text-gray-500 text-xs leading-relaxed">
+      Find surprise weapons where your opponent leaves the book first, with engine validation.
+    </p>
+  </a>
+
+  <a href="/habits" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
+     style="background:#0f172a;border-color:#1f2937;">
+    <div class="text-2xl mb-3 opacity-80">♞</div>
+    <h3 class="font-semibold text-white text-sm mb-2 group-hover:text-amber-400 transition-colors">Analyse Habits</h3>
+    <p class="text-gray-500 text-xs leading-relaxed">
+      Discover positions where you consistently play a suboptimal move — then drill the fix.
+    </p>
+  </a>
+
+  <a href="/repertoire" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
+     style="background:#0f172a;border-color:#1f2937;">
+    <div class="text-2xl mb-3 opacity-80">♖</div>
+    <h3 class="font-semibold text-white text-sm mb-2 group-hover:text-amber-400 transition-colors">Extract Repertoire</h3>
+    <p class="text-gray-500 text-xs leading-relaxed">
+      Reconstruct your opening tree from real games with frequency annotations and branching.
+    </p>
+  </a>
+
+</div>
+
+<!-- ─── Insights (filled by JS) ──────────────────────────────────── -->
+<div id="dash-loading" class="text-center py-16 text-gray-700 text-sm select-none">
+  Loading your insights…
+</div>
+
+<div id="dash-empty" class="hidden text-center py-16">
+  <p class="text-gray-600 text-sm">No completed jobs yet.</p>
+  <p class="text-gray-700 text-xs mt-1">Run a <a href="/fetch" class="text-amber-500 hover:underline">Fetch</a> or start an <a href="/habits" class="text-amber-500 hover:underline">analysis</a> to unlock your insights.</p>
+</div>
+
+<div id="dash-content" class="hidden space-y-8">
+
+  <!-- Stats row -->
+  <div class="grid grid-cols-3 gap-4" id="stats-row"></div>
+
+  <!-- Habits + Novelties -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div id="habits-panel" class="hidden rounded-xl border border-gray-800 overflow-hidden" style="background:#0b1120;"></div>
+    <div id="novelties-panel" class="hidden rounded-xl border border-gray-800 overflow-hidden" style="background:#0b1120;"></div>
+  </div>
+
+  <!-- Recent activity -->
+  <div>
+    <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent Activity</h2>
+    <div id="recent-list" class="space-y-2"></div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .feature-card:hover {
+    border-color: rgba(245,158,11,0.35) !important;
+    box-shadow: 0 0 0 1px rgba(245,158,11,0.08), 0 4px 24px rgba(0,0,0,0.4);
+  }
+  .eval-bar-track {
+    background: #1f2937;
+    border-radius: 3px;
+    height: 5px;
+    overflow: hidden;
+    flex: 1;
+  }
+  .eval-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #f59e0b 0%, #f97316 55%, #ef4444 100%);
+  }
+</style>
+
+<script>
+// ─── Mini chess board renderer ─────────────────────────────────────────────
+const PIECES = {
+  K:'♔', Q:'♕', R:'♖', B:'♗', N:'♘', P:'♙',
+  k:'♚', q:'♛', r:'♜', b:'♝', n:'♞', p:'♟',
+};
+
+function renderMiniBoard(fen, orig, dest, size = 128) {
+  const sq = size / 8;
+  const pos = fen.split(' ')[0];
+  const ranks = pos.split('/');
+  const cells = [];
+
+  for (let r = 0; r < 8; r++) {
+    let f = 0;
+    for (const ch of ranks[r]) {
+      if (ch >= '1' && ch <= '8') {
+        for (let i = 0; i < +ch; i++) cells.push({ piece: null, r, f: f++ });
+      } else {
+        cells.push({ piece: ch, r, f: f++ });
+      }
+    }
+  }
+
+  const files = 'abcdefgh';
+  const sqName = (r, f) => files[f] + (8 - r);
+
+  const cellsHtml = cells.map(({ piece, r, f }) => {
+    const name    = sqName(r, f);
+    const isLight = (r + f) % 2 === 0;
+    const isOrig  = name === orig;
+    const isDest  = name === dest;
+
+    let bg;
+    if (isOrig)        bg = '#aaa23a';
+    else if (isDest)   bg = '#cdd26a';
+    else               bg = isLight ? '#ede0c8' : '#9c7248';
+
+    const pu = piece ? (PIECES[piece] || '') : '';
+    const isWhite = piece && piece === piece.toUpperCase();
+    const col    = isWhite ? '#1c1208' : '#f5e6cc';
+    const shadow = isWhite
+      ? '0 1px 1px rgba(0,0,0,0.6),0 0 2px rgba(0,0,0,0.4)'
+      : '0 1px 1px rgba(255,255,255,0.3),0 0 2px rgba(0,0,0,0.5)';
+
+    return `<div style="width:${sq}px;height:${sq}px;background:${bg};display:flex;`
+         + `align-items:center;justify-content:center;font-size:${sq*0.72}px;`
+         + `line-height:1;color:${col};text-shadow:${shadow};">${pu}</div>`;
+  }).join('');
+
+  return `<div style="display:grid;grid-template-columns:repeat(8,${sq}px);`
+       + `border-radius:4px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,0.5);">`
+       + cellsHtml + `</div>`;
+}
+
+// ─── Eval bar ──────────────────────────────────────────────────────────────
+function evalBar(gapCp) {
+  const width = Math.min(gapCp / 200 * 100, 100).toFixed(1);
+  return `<div class="eval-bar-track"><div class="eval-bar-fill" style="width:${width}%;"></div></div>`;
+}
+
+// ─── Gap color ─────────────────────────────────────────────────────────────
+function gapColor(cp) {
+  if (cp >= 75)  return '#f87171';
+  if (cp >= 40)  return '#f97316';
+  return '#fbbf24';
+}
+
+function evalColor(cp) {
+  if (cp >= 50)  return '#4ade80';
+  if (cp >= 10)  return '#fbbf24';
+  if (cp >= -10) return '#e5e7eb';
+  return '#f87171';
+}
+
+function nagLabel(cp) { return cp >= 75 ? '?' : '?!'; }
+
+// ─── Stat card ────────────────────────────────────────────────────────────
+function statCard(value, label, accent = '#fbbf24') {
+  return `<div class="rounded-xl border border-gray-800 p-5 text-center" style="background:#0f172a;">
+    <div class="text-3xl font-bold mb-1" style="color:${accent};">${value}</div>
+    <div class="text-gray-500 text-xs uppercase tracking-wider">${label}</div>
+  </div>`;
+}
+
+// ─── Recent job row ───────────────────────────────────────────────────────
+function recentJobRow(j) {
+  const statusColor = { done:'#4ade80', running:'#60a5fa', failed:'#f87171' };
+  const col   = statusColor[j.status] || '#9ca3af';
+  const time  = new Date(j.started_at).toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+  const p     = j.params || {};
+  const label = j.command === 'fetch'      ? `${p.username || ''} / ${p.color || ''}${p.platform ? ' · '+p.platform : ''}`
+              : j.command === 'import'     ? `${p.username || ''} / ${p.color || ''} — ${p.filename || 'PGN'}`
+              : j.command === 'habits'     ? `${p.username || ''} / ${p.color || ''} — habits (${p.platform || 'lichess'})`
+              : j.command === 'repertoire' ? `${p.username || ''} / ${p.color || ''} — repertoire`
+              : `${p.side || ''} · player=${p.player||'—'} opp=${p.opponent||'—'}`;
+
+  return `<div class="flex items-center gap-3 rounded-lg border border-gray-800 px-4 py-3 text-sm" style="background:#0f172a;">
+    <span class="font-mono text-xs text-gray-600">${j.id.slice(0,8)}</span>
+    <span class="text-xs bg-gray-800 px-2 py-0.5 rounded text-gray-400">${j.command}</span>
+    <span class="text-xs font-mono" style="color:${col};">${j.status}</span>
+    <span class="text-gray-400 truncate flex-1">${label}</span>
+    <span class="text-gray-600 text-xs shrink-0">${time}</span>
+    <a href="/jobs/${j.id}" class="text-amber-500 text-xs hover:underline shrink-0">View →</a>
+  </div>`;
+}
+
+// ─── Render habits panel ──────────────────────────────────────────────────
+function renderHabitsPanel(habits, stats) {
+  if (!habits.length) return '';
+
+  const username = habits[0].username || '';
+  const jobId    = habits[0].job_id   || '';
+  const color    = habits[0].color    || 'white';
+
+  const header = `<div class="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+    <div>
+      <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Worst Habits</span>
+      ${username ? `<span class="text-gray-600 text-xs ml-2">· ${username}</span>` : ''}
+    </div>
+    <a href="/jobs/${jobId}/habits-browser" class="text-xs text-amber-500 hover:underline">Browse all →</a>
+  </div>`;
+
+  const rows = habits.map(h => {
+    const nag  = nagLabel(h.eval_gap_cp);
+    const col  = gapColor(h.eval_gap_cp);
+    const board = renderMiniBoard(h.fen, h.player_move_orig, h.player_move_dest, 80);
+    return `<div class="flex items-center gap-4 px-5 py-4 border-b border-gray-900 hover:bg-white/[0.02] transition-colors">
+      <div class="shrink-0">${board}</div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-baseline gap-2 mb-1">
+          <span class="font-mono font-bold text-base" style="color:#f87171;">${h.player_move_san}${nag}</span>
+          <span class="text-gray-600 text-xs">→</span>
+          <span class="font-mono text-sm text-green-400">${h.best_move_san}</span>
+        </div>
+        <div class="flex items-center gap-2 mb-2">
+          ${evalBar(h.eval_gap_cp)}
+          <span class="font-mono text-xs shrink-0" style="color:${col};">+${h.eval_gap_cp.toFixed(0)}&nbsp;cp</span>
+        </div>
+        <div class="flex gap-3 text-xs text-gray-600">
+          <span>${h.total_games}× at position</span>
+          <span>score&nbsp;${h.score.toFixed(1)}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const footer = `<div class="px-5 py-3 flex gap-3">
+    <a href="/jobs/${jobId}/habits-practice" class="text-xs text-amber-400 hover:underline font-semibold">▶ Practice Mode</a>
+    <a href="/jobs/${jobId}/habits-browser"  class="text-xs text-gray-500 hover:underline">Browse &amp; review →</a>
+  </div>`;
+
+  return header + rows + footer;
+}
+
+// ─── Render novelties panel ───────────────────────────────────────────────
+function renderNoveltyPanel(novelties) {
+  if (!novelties.length) return '';
+
+  const jobId = novelties[0].job_id || '';
+
+  function moveLabel(n) {
+    const ply = n.book_moves_san.length;
+    const num = Math.floor(ply / 2) + 1;
+    const dots = ply % 2 === 1 ? '…' : '.';
+    return `${num}${dots}${n.novelty_san}`;
+  }
+
+  const header = `<div class="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+    <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Best Novelties</span>
+    <a href="/jobs/${jobId}/novelties" class="text-xs text-amber-500 hover:underline">Browse all →</a>
+  </div>`;
+
+  const rows = novelties.map(n => {
+    const ec   = evalColor(n.eval_cp);
+    const isTN = n.post_novelty_games === 0;
+    const post = isTN
+      ? `<span style="color:#60a5fa;font-size:10px;">True Novelty</span>`
+      : `<span class="text-gray-600 text-xs">${n.post_novelty_games} post-games</span>`;
+
+    return `<div class="flex items-center gap-3 px-5 py-3 border-b border-gray-900 hover:bg-white/[0.02] transition-colors">
+      <span class="text-gray-600 text-xs w-5 text-right shrink-0">${n.rank}</span>
+      <span class="font-mono font-bold text-sm flex-1" style="color:#e5e7eb;">${moveLabel(n)}</span>
+      <span class="font-mono text-xs shrink-0" style="color:${ec};">${n.eval_cp >= 0 ? '+' : ''}${n.eval_cp.toFixed(0)}&nbsp;cp</span>
+      <span class="shrink-0 text-xs">${post}</span>
+    </div>`;
+  }).join('');
+
+  const footer = `<div class="px-5 py-3">
+    <a href="/jobs/${jobId}/novelties" class="text-xs text-gray-500 hover:underline">Full analysis →</a>
+  </div>`;
+
+  return header + rows + footer;
+}
+
+// ─── Main load ────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  let data;
+  try {
+    const res = await fetch('/api/dashboard');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    document.getElementById('dash-loading').textContent = 'Could not load insights.';
+    return;
+  }
+
+  document.getElementById('dash-loading').classList.add('hidden');
+
+  const { stats, top_habits, top_novelties, recent_jobs } = data;
+
+  if (!stats.done_jobs && !recent_jobs.length) {
+    document.getElementById('dash-empty').classList.remove('hidden');
+    return;
+  }
+
+  document.getElementById('dash-content').classList.remove('hidden');
+
+  // Stats
+  const statsEl = document.getElementById('stats-row');
+  const habitRuns    = stats.job_counts?.habits     || 0;
+  const noveltyRuns  = stats.job_counts?.search     || 0;
+  const reperRuns    = stats.job_counts?.repertoire || 0;
+  statsEl.innerHTML =
+    statCard(stats.done_jobs,  'Jobs Completed',      '#fbbf24') +
+    statCard(habitRuns,        'Habits Analyses',     '#f87171') +
+    statCard(noveltyRuns,      'Novelty Searches',    '#4ade80');
+
+  // Habits panel
+  if (top_habits.length) {
+    const hp = document.getElementById('habits-panel');
+    hp.classList.remove('hidden');
+    hp.innerHTML = renderHabitsPanel(top_habits, stats);
+  }
+
+  // Novelties panel
+  if (top_novelties.length) {
+    const np = document.getElementById('novelties-panel');
+    np.classList.remove('hidden');
+    np.innerHTML = renderNoveltyPanel(top_novelties);
+  }
+
+  // Recent activity
+  if (recent_jobs.length) {
+    document.getElementById('recent-list').innerHTML =
+      recent_jobs.map(recentJobRow).join('');
+  }
+}
+
+loadDashboard();
+</script>
+{% endblock %}

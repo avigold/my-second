@@ -71,6 +71,11 @@ def _vite_tags() -> tuple[str, str]:
 
 @app.get("/")
 def index():
+    return render_template("dashboard.html")
+
+
+@app.get("/jobs")
+def jobs_page():
     return render_template("index.html")
 
 
@@ -143,6 +148,76 @@ def api_search():
     argv = build_search_argv(params, out_path)
     launch_job(job, argv, REPO_ROOT, registry)
     return jsonify({"job_id": job.id})
+
+
+@app.get("/api/dashboard")
+def api_dashboard():
+    """Aggregate job data for the dashboard visualisations."""
+    all_jobs = registry.list_all()   # newest first
+    done_jobs = [j for j in all_jobs if j["status"] == "done"]
+
+    # Job counts by command type
+    job_counts: dict[str, int] = {}
+    for j in done_jobs:
+        job_counts[j["command"]] = job_counts.get(j["command"], 0) + 1
+
+    # Unique users mentioned across all jobs
+    users: set[str] = set()
+    for j in all_jobs:
+        p = j.get("params") or {}
+        if p.get("username"):
+            users.add(p["username"])
+
+    stats = {
+        "total_jobs":  len(all_jobs),
+        "done_jobs":   len(done_jobs),
+        "job_counts":  job_counts,
+        "user_count":  len(users),
+        "users":       sorted(users)[:10],
+    }
+
+    # Top habits from the most recent completed habits job
+    top_habits: list = []
+    habits_job = next(
+        (j for j in all_jobs
+         if j["command"] == "habits" and j["status"] == "done" and j.get("out_path")),
+        None,
+    )
+    if habits_job:
+        try:
+            items = parse_habits(habits_job["out_path"])[:5]
+            for h in items:
+                h["job_id"]   = habits_job["id"]
+                h["username"] = (habits_job.get("params") or {}).get("username", "")
+                h["color"]    = (habits_job.get("params") or {}).get("color", "white")
+            top_habits = items
+        except Exception:
+            pass
+
+    # Top novelties from the most recent completed search job
+    top_novelties: list = []
+    search_job = next(
+        (j for j in all_jobs
+         if j["command"] == "search" and j["status"] == "done" and j.get("out_path")),
+        None,
+    )
+    if search_job:
+        try:
+            root_fen = (search_job.get("params") or {}).get("fen", chess.STARTING_FEN)
+            side     = (search_job.get("params") or {}).get("side", "white")
+            items    = parse_novelties(search_job["out_path"], root_fen, side)[:5]
+            for n in items:
+                n["job_id"] = search_job["id"]
+            top_novelties = items
+        except Exception:
+            pass
+
+    return jsonify({
+        "stats":          stats,
+        "top_habits":     top_habits,
+        "top_novelties":  top_novelties,
+        "recent_jobs":    all_jobs[:6],
+    })
 
 
 @app.get("/api/jobs")

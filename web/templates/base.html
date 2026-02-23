@@ -89,11 +89,11 @@
     <a href="/search" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Search Novelties</a>
     <a href="/repertoire" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Extract Repertoire</a>
     <a href="/habits" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Analyse Habits</a>
-    <a href="/" class="text-sm text-gray-300 hover:text-amber-400 transition-colors ml-auto">Job History</a>
+    <a href="/jobs" class="text-sm text-gray-300 hover:text-amber-400 transition-colors ml-auto">Job History</a>
   </nav>
 
   <!-- Main content -->
-  <main class="max-w-4xl mx-auto px-6 py-8">
+  <main class="{% block main_class %}max-w-4xl{% endblock %} mx-auto px-6 {% block main_padding %}py-8{% endblock %}">
     {% block content %}{% endblock %}
   </main>
 
