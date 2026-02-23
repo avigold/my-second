@@ -11,11 +11,12 @@ function flattenTree(node, map = new Map()) {
 }
 
 export default function RepertoireApp({ jobId, side }) {
-  const [nodeMap,  setNodeMap]  = useState(null)
-  const [rootId,   setRootId]   = useState(null)
-  const [curId,    setCurId]    = useState(null)
-  const [path,     setPath]     = useState([])   // [id, ...] from root to current
-  const [error,    setError]    = useState(null)
+  const [nodeMap,    setNodeMap]    = useState(null)
+  const [rootId,     setRootId]     = useState(null)
+  const [curId,      setCurId]      = useState(null)
+  const [path,       setPath]       = useState([])   // [id, ...] from root to current
+  const [treeStats,  setTreeStats]  = useState(null)
+  const [error,      setError]      = useState(null)
 
   useEffect(() => {
     fetch(`/api/jobs/${jobId}/repertoire`)
@@ -30,6 +31,7 @@ export default function RepertoireApp({ jobId, side }) {
         setRootId(data.root.id)
         setCurId(data.root.id)
         setPath([data.root.id])
+        setTreeStats(data.tree_stats || null)
       })
       .catch(err => setError(err.message))
   }, [jobId])
@@ -120,6 +122,7 @@ export default function RepertoireApp({ jobId, side }) {
           onNavigate={goTo}
           onBack={goBack}
           canGoBack={path.length > 1}
+          treeStats={treeStats}
         />
       </div>
     </div>

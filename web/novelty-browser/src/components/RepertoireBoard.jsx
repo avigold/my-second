@@ -3,7 +3,7 @@ import Chessground from '@react-chess/chessground'
 
 const BOARD_SIZE = 480
 
-export default function RepertoireBoard({ node, nodeMap, orientation, onNavigate, onBack, canGoBack }) {
+export default function RepertoireBoard({ node, nodeMap, orientation, onNavigate, onBack, canGoBack, treeStats }) {
   if (!node) return null
 
   const config = {
@@ -21,12 +21,13 @@ export default function RepertoireBoard({ node, nodeMap, orientation, onNavigate
   return (
     <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
 
-      {/* Left: board + nav */}
-      <div style={{ flexShrink: 0 }}>
+      {/* Left: board + nav + stats */}
+      <div style={{ flexShrink: 0, width: BOARD_SIZE }}>
         <div style={{ width: BOARD_SIZE, height: BOARD_SIZE }}>
           <Chessground width={BOARD_SIZE} height={BOARD_SIZE} config={config} />
         </div>
         <NavBar onBack={onBack} canGoBack={canGoBack} />
+        <StatsPanel node={node} treeStats={treeStats} orientation={orientation} />
       </div>
 
       {/* Right: move choices + annotation */}
@@ -65,6 +66,201 @@ function NavBar({ onBack, canGoBack }) {
 }
 
 // ---------------------------------------------------------------------------
+// StatsPanel — below the board
+// ---------------------------------------------------------------------------
+function StatsPanel({ node, treeStats, orientation }) {
+  const freq = node?.freq   // null for root / opponent nodes
+
+  const hasWdl = freq && freq.wins !== null && freq.draws !== null && freq.losses !== null
+  const wdlTotal = hasWdl ? (freq.wins + freq.draws + freq.losses) : 0
+  const winPct  = hasWdl && wdlTotal > 0 ? (freq.wins   / wdlTotal) * 100 : 0
+  const drawPct = hasWdl && wdlTotal > 0 ? (freq.draws  / wdlTotal) * 100 : 0
+  const lossPct = hasWdl && wdlTotal > 0 ? (freq.losses / wdlTotal) * 100 : 0
+  // Performance score: 1 per win, 0.5 per draw, 0 per loss, normalised 0-100
+  const score   = hasWdl && wdlTotal > 0
+    ? ((freq.wins + freq.draws * 0.5) / wdlTotal) * 100
+    : null
+  const solidity = hasWdl && wdlTotal > 0 ? winPct + drawPct : null
+
+  // Depth chart — skip depth 0 (root)
+  const depthEntries = treeStats
+    ? Object.entries(treeStats.depth_counts)
+        .map(([d, c]) => [Number(d), c])
+        .filter(([d]) => d > 0)
+        .sort((a, b) => a[0] - b[0])
+    : []
+  const maxCount = depthEntries.reduce((m, [, c]) => Math.max(m, c), 1)
+
+  // Which depths are "player" depths?
+  // White player: moves at odd ply (depth 1,3,5,…)
+  // Black player: moves at even ply (depth 2,4,6,…)
+  const isPlayerDepth = (d) =>
+    orientation === 'white' ? d % 2 === 1 : d % 2 === 0
+
+  return (
+    <div style={{
+      marginTop: 12,
+      background: '#0a0f1a',
+      border: '1px solid #1e2d45',
+      borderRadius: 10,
+      padding: '16px',
+      fontSize: 12,
+    }}>
+
+      {/* ── Position stats (only for player move nodes with freq data) ── */}
+      {freq && (
+        <div style={{ marginBottom: treeStats ? 16 : 0 }}>
+          <SectionLabel>This Line</SectionLabel>
+
+          {/* WDL bar */}
+          {hasWdl ? (
+            <>
+              <div style={{
+                display: 'flex', height: 12, borderRadius: 6,
+                overflow: 'hidden', marginBottom: 6,
+              }}>
+                <div style={{ width: `${winPct}%`,  background: '#22c55e', transition: 'width 0.35s' }} />
+                <div style={{ width: `${drawPct}%`, background: '#64748b', transition: 'width 0.35s' }} />
+                <div style={{ width: `${lossPct}%`, background: '#ef4444', transition: 'width 0.35s' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 14, color: '#9ca3af', marginBottom: 12, fontSize: 11 }}>
+                <span style={{ color: '#4ade80' }}>▬ {winPct.toFixed(0)}% W</span>
+                <span style={{ color: '#94a3b8' }}>▬ {drawPct.toFixed(0)}% D</span>
+                <span style={{ color: '#f87171' }}>▬ {lossPct.toFixed(0)}% L</span>
+              </div>
+            </>
+          ) : (
+            /* Frequency bar even without WDL */
+            freq.total > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: '#1e2d45', marginBottom: 4 }}>
+                  <div style={{ width: `${freq.pct}%`, background: '#f59e0b', transition: 'width 0.35s' }} />
+                </div>
+              </div>
+            )
+          )}
+
+          {/* Metric chips */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {hasWdl && score !== null && (
+              <MetricChip
+                label="Advantage"
+                value={`${winPct >= 50 ? '+' : ''}${winPct.toFixed(0)}%`}
+                color={winPct >= 55 ? '#4ade80' : winPct >= 45 ? '#fbbf24' : '#f87171'}
+              />
+            )}
+            {solidity !== null && (
+              <MetricChip
+                label="Solidity"
+                value={`${solidity.toFixed(0)}%`}
+                color={solidity >= 70 ? '#60a5fa' : solidity >= 50 ? '#9ca3af' : '#f87171'}
+              />
+            )}
+            {score !== null && (
+              <MetricChip
+                label="Score"
+                value={(score / 100).toFixed(2)}
+                color={score >= 55 ? '#fbbf24' : score >= 45 ? '#9ca3af' : '#f87171'}
+              />
+            )}
+            {freq.games !== undefined && (
+              <MetricChip
+                label="Frequency"
+                value={`${freq.games}/${freq.total}`}
+                color="#9ca3af"
+                subtitle={`${freq.pct}% of games`}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Tree overview ── */}
+      {treeStats && (
+        <div style={{ borderTop: freq ? '1px solid #1e2d45' : 'none', paddingTop: freq ? 14 : 0 }}>
+          <SectionLabel>Repertoire Overview</SectionLabel>
+
+          {/* Summary chips */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+            <MetricChip label="Lines"      value={treeStats.leaf_count}      color="#f3f4f6" />
+            <MetricChip label="Positions"  value={treeStats.total_positions}  color="#f3f4f6" />
+            <MetricChip label="Your moves" value={treeStats.player_moves}     color="#fbbf24" />
+            <MetricChip label="Max depth"  value={`${treeStats.max_depth}p`}  color="#60a5fa" />
+          </div>
+
+          {/* Depth distribution chart */}
+          <div style={{ color: '#6b7280', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+            Depth distribution
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {depthEntries.map(([depth, count]) => {
+              const isPlayer = isPlayerDepth(depth)
+              const barColor = isPlayer ? '#f59e0b' : '#3b82f6'
+              return (
+                <div key={depth} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{
+                    width: 16, textAlign: 'right', fontSize: 10,
+                    color: isPlayer ? '#f59e0b99' : '#3b82f699', flexShrink: 0,
+                  }}>
+                    {depth}
+                  </span>
+                  <div style={{ flex: 1, background: '#1e2d45', borderRadius: 3, height: 10, overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${(count / maxCount) * 100}%`,
+                      height: '100%',
+                      background: barColor,
+                      borderRadius: 3,
+                      transition: 'width 0.35s',
+                      opacity: 0.85,
+                    }} />
+                  </div>
+                  <span style={{ width: 22, fontSize: 10, color: '#4b5563', textAlign: 'right' }}>{count}</span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Legend */}
+          <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 10, color: '#4b5563' }}>
+            <span><span style={{ color: '#f59e0b' }}>▬</span> Your moves</span>
+            <span><span style={{ color: '#3b82f6' }}>▬</span> Opponent moves</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SectionLabel({ children }) {
+  return (
+    <div style={{
+      color: '#6b7280', fontSize: 10, textTransform: 'uppercase',
+      letterSpacing: '0.06em', marginBottom: 8,
+    }}>
+      {children}
+    </div>
+  )
+}
+
+function MetricChip({ label, value, color, subtitle }) {
+  return (
+    <div style={{
+      background: '#111827',
+      border: '1px solid #1e2d45',
+      borderRadius: 7,
+      padding: '7px 11px',
+      minWidth: 58,
+    }}>
+      <div style={{ color, fontSize: 16, fontWeight: 700, fontFamily: 'monospace', lineHeight: 1.2 }}>
+        {value}
+      </div>
+      <div style={{ color: '#6b7280', fontSize: 10, marginTop: 2 }}>{label}</div>
+      {subtitle && <div style={{ color: '#4b5563', fontSize: 9, marginTop: 1 }}>{subtitle}</div>}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // AnnotationPanel — shows move info and frequency comment for current node
 // ---------------------------------------------------------------------------
 function AnnotationPanel({ node }) {
@@ -93,9 +289,9 @@ function AnnotationPanel({ node }) {
         </span>
         <span style={{ fontSize: 11, color: '#6b7280' }}>· ply {node.depth}</span>
       </div>
-      {node.comment && (
-        <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 6, fontFamily: 'monospace' }}>
-          {node.comment}
+      {node.freq && (
+        <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 6 }}>
+          {node.freq.games}/{node.freq.total} games · {node.freq.pct}%
         </div>
       )}
     </div>
@@ -167,9 +363,10 @@ function MoveOption({ node, isMainline, isPlayerMove, onClick }) {
       <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: isMainline ? 700 : 400, color: textColor, minWidth: 48 }}>
         {node.move_san}
       </span>
-      {node.comment && (
-        <span style={{ color: '#6b7280', fontSize: 11, fontFamily: 'monospace' }}>
-          {node.comment}
+      {/* Show frequency inline for player moves */}
+      {node.freq && (
+        <span style={{ color: '#6b7280', fontSize: 11 }}>
+          {node.freq.pct}%
         </span>
       )}
       {node.children.length === 0 && (

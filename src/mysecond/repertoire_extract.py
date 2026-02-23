@@ -275,10 +275,29 @@ def _walk_player_turn(
     # Most-played move first → becomes mainline; rest are variations.
     qualifying.sort(key=lambda x: -x[1])
 
+    # Build a quick lookup: uci → move entry (for WDL data)
+    move_data_by_uci: dict[str, dict] = {
+        m.get("uci", ""): m for m in data.get("moves", [])
+    }
+
     for i, (move, g) in enumerate(qualifying):
         pct = g / total * 100 if total else 0
         child = node.add_main_variation(move) if i == 0 else node.add_variation(move)
-        child.comment = f"{g}/{total} games ({pct:.0f}%)"
+
+        md = move_data_by_uci.get(move.uci(), {})
+        if player_color == chess.WHITE:
+            m_wins   = md.get("white", 0)
+            m_draws  = md.get("draws", 0)
+            m_losses = md.get("black", 0)
+        else:
+            m_wins   = md.get("black", 0)
+            m_draws  = md.get("draws", 0)
+            m_losses = md.get("white", 0)
+
+        child.comment = (
+            f"{g}/{total} games ({pct:.0f}%) "
+            f"W:{m_wins} D:{m_draws} L:{m_losses}"
+        )
         stats["moves"] += 1
 
         new_board = board.copy()
