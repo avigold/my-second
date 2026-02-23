@@ -194,23 +194,27 @@ def api_dashboard():
         except Exception:
             pass
 
-    # Top novelties from the most recent completed search job
+    # Top novelties + total count across all completed search jobs
     top_novelties: list = []
-    search_job = next(
-        (j for j in all_jobs
-         if j["command"] == "search" and j["status"] == "done" and j.get("out_path")),
-        None,
-    )
-    if search_job:
+    total_novelties = 0
+    search_jobs = [
+        j for j in all_jobs
+        if j["command"] == "search" and j["status"] == "done" and j.get("out_path")
+    ]
+    for sj in search_jobs:
         try:
-            root_fen = (search_job.get("params") or {}).get("fen", chess.STARTING_FEN)
-            side     = (search_job.get("params") or {}).get("side", "white")
-            items    = parse_novelties(search_job["out_path"], root_fen, side)[:5]
-            for n in items:
-                n["job_id"] = search_job["id"]
-            top_novelties = items
+            root_fen = (sj.get("params") or {}).get("fen", chess.STARTING_FEN)
+            side     = (sj.get("params") or {}).get("side", "white")
+            items    = parse_novelties(sj["out_path"], root_fen, side)
+            total_novelties += len(items)
+            if not top_novelties:
+                for n in items[:5]:
+                    n["job_id"] = sj["id"]
+                top_novelties = items[:5]
         except Exception:
             pass
+
+    stats["total_novelties"] = total_novelties
 
     return jsonify({
         "stats":          stats,
