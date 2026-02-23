@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mysecond – Habit Practice</title>
+</head>
+<body>
+  {# The React app owns the full viewport — no base.html nav needed here. #}
+  <div id="root"
+       data-job-id="{{ job_id }}"
+       data-side="{{ side }}"
+       data-mode="habits-practice">
+  </div>
+  {{ css_tag | safe }}
+  {{ js_tag  | safe }}
+</body>
+</html>

@@ -2,6 +2,8 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import HabitsApp from './HabitsApp.jsx'
+import HabitsPracticeApp from './HabitsPracticeApp.jsx'
+import RepertoireApp from './RepertoireApp.jsx'
 import './chessground.base.css'
 import './chessground.brown.css'
 import './chessground.cburnett.css'
@@ -12,8 +14,11 @@ const jobId  = rootEl.dataset.jobId
 const side   = rootEl.dataset.side || 'white'
 const mode   = rootEl.dataset.mode || 'novelties'
 
-createRoot(rootEl).render(
-  mode === 'habits'
-    ? <HabitsApp jobId={jobId} side={side} />
-    : <App       jobId={jobId} side={side} />
-)
+const apps = {
+  'novelties':       <App                jobId={jobId} side={side} />,
+  'habits':          <HabitsApp          jobId={jobId} side={side} />,
+  'habits-practice': <HabitsPracticeApp  jobId={jobId} side={side} />,
+  'repertoire':      <RepertoireApp      jobId={jobId} side={side} />,
+}
+
+createRoot(rootEl).render(apps[mode] ?? apps['novelties'])

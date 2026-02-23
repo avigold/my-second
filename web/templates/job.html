@@ -29,11 +29,23 @@
       Browse Novelties
     </a>
     {% endif %}
+    {% if job.command == 'repertoire' %}
+    <a href="/jobs/{{ job.id }}/repertoire-browser"
+       class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
+       id="browse-btn">
+      Browse Repertoire
+    </a>
+    {% endif %}
     {% if job.command == 'habits' %}
     <a href="/jobs/{{ job.id }}/habits-browser"
        class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
        id="browse-btn">
       Browse Habits
+    </a>
+    <a href="/jobs/{{ job.id }}/habits-practice"
+       class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
+       id="practice-btn">
+      Practice
     </a>
     {% endif %}
     {% if job.command in ('search', 'habits', 'repertoire') %}
@@ -110,8 +122,12 @@ function markDone(status) {
   badge.textContent = status;
   badge.className = `status-${status} text-xs font-mono uppercase border border-current px-2 py-0.5 rounded`;
   if (status === 'done' && dlBtn) dlBtn.classList.remove('hidden');
-  const browseBtn = document.getElementById('browse-btn');
-  if (status === 'done' && browseBtn) browseBtn.classList.remove('hidden');
+  if (status === 'done') {
+    ['browse-btn', 'practice-btn'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) btn.classList.remove('hidden');
+    });
+  }
   if (status === 'done') {
     loadNoveltySummary();
     loadHabitsSummary();

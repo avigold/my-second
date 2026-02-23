@@ -21,6 +21,7 @@ from flask import (
 from habits_parser import parse_habits
 from jobs import Job, JobRegistry
 from pgn_parser import parse_novelties
+from repertoire_parser import parse_repertoire
 from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, launch_job
 
 # ---------------------------------------------------------------------------
@@ -267,9 +268,52 @@ def api_repertoire():
     return jsonify({"job_id": job.id})
 
 
+@app.get("/api/jobs/<job_id>/repertoire")
+def api_repertoire_data(job_id: str):
+    job = registry.get(job_id)
+    if job is None:
+        return jsonify({"error": "not found"}), 404
+    if not job.out_path or not Path(job.out_path).exists():
+        return jsonify({})
+    color = job.params.get("color", "white")
+    return jsonify(parse_repertoire(job.out_path, color))
+
+
+@app.get("/jobs/<job_id>/repertoire-browser")
+def repertoire_browser_page(job_id: str):
+    job = registry.get(job_id)
+    if job is None:
+        return "Job not found", 404
+    side = job.params.get("color", "white")
+    css_tag, js_tag = _vite_tags()
+    return render_template(
+        "repertoire_browser.html",
+        job_id=job_id,
+        side=side,
+        css_tag=css_tag,
+        js_tag=js_tag,
+    )
+
+
 @app.get("/habits")
 def habits_page():
     return render_template("habits.html")
+
+
+@app.get("/jobs/<job_id>/habits-practice")
+def habits_practice_page(job_id: str):
+    job = registry.get(job_id)
+    if job is None:
+        return "Job not found", 404
+    side = job.params.get("color", "white")
+    css_tag, js_tag = _vite_tags()
+    return render_template(
+        "habits_practice.html",
+        job_id=job_id,
+        side=side,
+        css_tag=css_tag,
+        js_tag=js_tag,
+    )
 
 
 @app.get("/jobs/<job_id>/habits-browser")

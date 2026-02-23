@@ -2,9 +2,9 @@
 
 How it works
 ------------
-After running ``fetch-player-games``, the cache contains per-position
-statistics for every position the player reached (at their turn).  This
-module walks that data as a tree:
+The cache is populated automatically if empty — no separate fetch step is
+required.  The cache contains per-position statistics for every position the
+player reached (at their turn).  This module walks that data as a tree:
 
 * **At the player's turn**: look up the position in the cache and follow
   every move they played at least ``min_games`` times.
@@ -40,7 +40,7 @@ import chess
 import chess.pgn
 
 from .cache import Cache
-from .fetcher import _backend_key
+from .fetcher import _backend_key, fetch_player_games, fetch_player_games_chesscom
 
 
 @dataclass
@@ -116,10 +116,37 @@ def extract_repertoire(
         print(f"[repertoire] {len(cache_index)} cached positions loaded.", flush=True)
 
     if not cache_index:
-        raise RuntimeError(
-            f"No cached data found for {username} ({color}, {speeds}, {platform}). "
-            "Run 'mysecond fetch-player-games' first."
-        )
+        if verbose:
+            print(
+                f"[repertoire] No cached data found — fetching games from {platform} …",
+                flush=True,
+            )
+        if platform == "chesscom":
+            fetch_player_games_chesscom(
+                username=username,
+                color=color,
+                cache=cache,
+                speeds=speeds,
+                verbose=verbose,
+            )
+        else:
+            fetch_player_games(
+                username=username,
+                color=color,
+                cache=cache,
+                speeds=speeds,
+                verbose=verbose,
+            )
+        all_rows = cache.scan_backend(backend)
+        cache_index = {
+            fen: payload
+            for fen, payload in all_rows
+            if not fen.startswith("_")
+        }
+        if not cache_index:
+            raise RuntimeError(
+                f"No games found after fetch — check username and speeds."
+            )
 
     # Build the PGN game skeleton.
     game = chess.pgn.Game()

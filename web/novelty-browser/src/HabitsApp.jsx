@@ -52,10 +52,16 @@ export default function HabitsApp({ jobId, side }) {
           <span style={{ color: '#9ca3af', fontSize: 12 }}>
             {habits.length} habits · job {jobId.slice(0, 8)}
           </span>
-          <a href={`/jobs/${jobId}`}
-             style={{ float: 'right', color: '#6b7280', fontSize: 12, textDecoration: 'none' }}>
-            ← Job log
-          </a>
+          <div style={{ float: 'right', display: 'flex', gap: 10 }}>
+            <a href={`/jobs/${jobId}/habits-practice`}
+               style={{ color: '#fbbf24', fontSize: 12, textDecoration: 'none' }}>
+              Practice →
+            </a>
+            <a href={`/jobs/${jobId}`}
+               style={{ color: '#6b7280', fontSize: 12, textDecoration: 'none' }}>
+              ← Job log
+            </a>
+          </div>
         </div>
         <HabitsTable
           habits={habits}
