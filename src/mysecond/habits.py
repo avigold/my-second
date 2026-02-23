@@ -189,12 +189,12 @@ def analyze_habits(
             try:
                 board = chess.Board(fen)
             except ValueError:
-                print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
+                print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             # Verify it's the player's turn (cache should guarantee this, but be safe).
             if board.turn != player_color:
-                print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
+                print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             if verbose:
@@ -210,12 +210,12 @@ def analyze_habits(
             multipv_k = min(max(len(qualifying_moves) + 1, 5), 20)
             infos = eng.analyse_multipv(board, depth=depth, multipv=multipv_k)
             if not infos or not infos[0].get("pv"):
-                print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
+                print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             best_move = infos[0]["pv"][0]
             if best_move not in board.legal_moves:
-                print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
+                print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             best_cp = float(
@@ -313,7 +313,7 @@ def analyze_habits(
                     flush=True,
                 )
 
-            print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
+            print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
 
     results.sort(key=lambda h: -h.score)
     results = results[:max_positions]

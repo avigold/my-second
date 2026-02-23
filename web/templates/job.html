@@ -198,26 +198,27 @@ const dlBtn    = document.getElementById('download-btn');
 const autoChk  = document.getElementById('autoscroll');
 
 // ── Progress bar ─────────────────────────────────────────────────────────────
-const PROGRESS_RE  = /\[progress\]\s+(\d+)\/(\d+)/;
-let   maxFraction  = 0;
+// Format: [progress:tag] n/m  (tag is optional, e.g. a username)
+const PROGRESS_RE     = /\[progress(?::([^\]]*))?\]\s+(\d+)\/(\d+)/;
+const progressSources = {};   // tag → { n, m }
 
-function updateProgress(n, m) {
+function updateProgress(tag, n, m) {
   if (!m) return;
-  const frac = Math.min(n / m, 1);
-  if (frac < maxFraction) return;   // only advance forward
-  maxFraction = frac;
-  const pct  = Math.round(frac * 100);
-  const wrap = document.getElementById('progress-wrap');
-  const bar  = document.getElementById('progress-bar');
-  const lbl  = document.getElementById('progress-label');
-  wrap.style.display = 'block';
-  bar.style.width    = pct + '%';
-  lbl.textContent    = pct + '%';
+  progressSources[tag || 'default'] = { n, m };
+  // Aggregate: overall fraction = sum(n) / sum(m) across all known sources
+  let totalN = 0, totalM = 0;
+  for (const s of Object.values(progressSources)) { totalN += s.n; totalM += s.m; }
+  const pct = totalM > 0 ? Math.round(Math.min(totalN / totalM, 1) * 100) : 0;
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-label').textContent = pct + '%';
+}
+
+function showProgressBar() {
+  document.getElementById('progress-wrap').style.display = 'block';
 }
 
 function markProgressDone() {
-  const wrap = document.getElementById('progress-wrap');
-  if (wrap.style.display === 'none') return;  // no progress data — leave hidden
+  showProgressBar();
   document.getElementById('progress-bar').style.width = '100%';
   document.getElementById('progress-label').textContent = '100%';
 }
@@ -225,7 +226,7 @@ function markProgressDone() {
 
 function appendLine(line) {
   const m = PROGRESS_RE.exec(line);
-  if (m) updateProgress(parseInt(m[1], 10), parseInt(m[2], 10));
+  if (m) updateProgress(m[1], parseInt(m[2], 10), parseInt(m[3], 10));
   logEl.textContent += line + '\n';
   if (autoChk.checked) logEl.scrollTop = logEl.scrollHeight;
 }
@@ -364,6 +365,7 @@ if (JOB_STATUS === 'done') {
 
 // Connect SSE only if job is/was running.
 if (JOB_STATUS === 'running') {
+  showProgressBar();  // show bar immediately; fills in as [progress] lines arrive
   const es = new EventSource(`/api/jobs/${JOB_ID}/stream`);
 
   es.onmessage = (e) => {
