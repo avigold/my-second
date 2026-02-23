@@ -277,7 +277,15 @@ def habits_browser_page(job_id: str):
     job = registry.get(job_id)
     if job is None:
         return "Job not found", 404
-    return render_template("habits_browser.html", job_id=job_id, job=job.to_dict())
+    side = job.params.get("color", "white")
+    css_tag, js_tag = _vite_tags()
+    return render_template(
+        "habits_browser.html",
+        job_id=job_id,
+        side=side,
+        css_tag=css_tag,
+        js_tag=js_tag,
+    )
 
 
 @app.get("/import-pgn")
