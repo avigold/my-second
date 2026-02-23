@@ -126,6 +126,9 @@ function renderJobList(jobs) {
         avatarUser     = j.params.opponent || '';
         avatarPlatform = j.params.opponent_platform || 'lichess';
       }
+    } else if (j.command === 'strategise') {
+      avatarUser     = j.params.player || '';
+      avatarPlatform = j.params.player_platform || 'lichess';
     } else {
       avatarUser     = j.params.username || '';
       avatarPlatform = j.params.platform || 'lichess';
