@@ -29,8 +29,9 @@
     <p class="text-gray-400 text-base mb-6 leading-relaxed max-w-xl">
       Uncover novelties, break recurring opening mistakes, and know your repertoire inside out.
     </p>
-    <div class="flex flex-wrap gap-3">
+    <div class="flex gap-3">
       <a href="/habits"     class="btn-primary">Analyse Habits</a>
+      <a href="/strategise" class="btn-secondary">Strategise</a>
       <a href="/search"     class="btn-secondary">Find Novelties</a>
       <a href="/repertoire" class="btn-secondary">Extract Repertoire</a>
       <a href="/fetch"      class="btn-secondary">Fetch Games</a>
@@ -39,7 +40,7 @@
 </section>
 
 <!-- ─── Feature Cards ─────────────────────────────────────────────── -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-12">
 
   <a href="/fetch" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
      style="background:#0f172a;border-color:#1f2937;">
@@ -74,6 +75,15 @@
     <h3 class="font-semibold text-white text-sm mb-2 group-hover:text-amber-400 transition-colors">Extract Repertoire</h3>
     <p class="text-gray-500 text-xs leading-relaxed">
       Reconstruct your opening tree from real games with frequency annotations and branching.
+    </p>
+  </a>
+
+  <a href="/strategise" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
+     style="background:#0f172a;border-color:#1f2937;">
+    <div class="text-2xl mb-3 opacity-80">♔</div>
+    <h3 class="font-semibold text-white text-sm mb-2 group-hover:text-amber-400 transition-colors">Strategise</h3>
+    <p class="text-gray-500 text-xs leading-relaxed">
+      Preparation brief. Decoded opening lines, endgame stats, and opponent weakness map.
     </p>
   </a>
 
@@ -225,6 +235,7 @@ function recentJobRow(j) {
               : j.command === 'import'     ? `${p.username || ''} / ${p.color || ''} — ${p.filename || 'PGN'}`
               : j.command === 'habits'     ? `${p.username || ''} / ${p.color || ''} — habits (${p.platform || 'lichess'})`
               : j.command === 'repertoire' ? `${p.username || ''} / ${p.color || ''} — repertoire`
+              : j.command === 'strategise' ? `${p.player || ''} (${p.player_color || '?'}) vs ${p.opponent || ''}`
               : `${p.side || ''} · player=${p.player||'—'} opp=${p.opponent||'—'}`;
 
   return `<div class="flex items-center gap-3 rounded-lg border border-gray-800 px-4 py-3 text-sm" style="background:#0f172a;">

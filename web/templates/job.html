@@ -132,6 +132,19 @@
 </div>
 {% endif %}
 
+<!-- Progress bar (shown once [progress] lines appear in the log) -->
+<div id="progress-wrap" style="display:none;" class="mb-3">
+  <div class="flex items-center justify-between mb-1">
+    <span class="text-xs text-gray-500">Progress</span>
+    <span id="progress-label" class="text-xs text-gray-400 font-mono">0%</span>
+  </div>
+  <div class="bg-gray-800 rounded-full overflow-hidden" style="height:6px;">
+    <div id="progress-bar"
+         style="background:#f59e0b;height:6px;border-radius:9999px;width:0%;transition:width 0.35s ease;">
+    </div>
+  </div>
+</div>
+
 <!-- Log output -->
 <div class="relative">
   <pre id="log-output"
@@ -184,7 +197,35 @@ const badge    = document.getElementById('status-badge');
 const dlBtn    = document.getElementById('download-btn');
 const autoChk  = document.getElementById('autoscroll');
 
+// ── Progress bar ─────────────────────────────────────────────────────────────
+const PROGRESS_RE  = /\[progress\]\s+(\d+)\/(\d+)/;
+let   maxFraction  = 0;
+
+function updateProgress(n, m) {
+  if (!m) return;
+  const frac = Math.min(n / m, 1);
+  if (frac < maxFraction) return;   // only advance forward
+  maxFraction = frac;
+  const pct  = Math.round(frac * 100);
+  const wrap = document.getElementById('progress-wrap');
+  const bar  = document.getElementById('progress-bar');
+  const lbl  = document.getElementById('progress-label');
+  wrap.style.display = 'block';
+  bar.style.width    = pct + '%';
+  lbl.textContent    = pct + '%';
+}
+
+function markProgressDone() {
+  const wrap = document.getElementById('progress-wrap');
+  if (wrap.style.display === 'none') return;  // no progress data — leave hidden
+  document.getElementById('progress-bar').style.width = '100%';
+  document.getElementById('progress-label').textContent = '100%';
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function appendLine(line) {
+  const m = PROGRESS_RE.exec(line);
+  if (m) updateProgress(parseInt(m[1], 10), parseInt(m[2], 10));
   logEl.textContent += line + '\n';
   if (autoChk.checked) logEl.scrollTop = logEl.scrollHeight;
 }
@@ -200,6 +241,7 @@ function markDone(status) {
     });
   }
   if (status === 'done') {
+    markProgressDone();
     loadNoveltySummary();
     loadHabitsSummary();
   }
@@ -353,6 +395,12 @@ if (JOB_STATUS === 'running') {
   es.addEventListener('done', () => {
     es.close();
     logEl.textContent = replayBuf.join('\n');
+    // Scan replayed lines for progress data, then snap to 100%.
+    replayBuf.forEach(line => {
+      const m = PROGRESS_RE.exec(line);
+      if (m) updateProgress(parseInt(m[1], 10), parseInt(m[2], 10));
+    });
+    markProgressDone();
     if (autoChk.checked) logEl.scrollTop = logEl.scrollHeight;
   });
 }

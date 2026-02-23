@@ -189,26 +189,39 @@ def analyze_habits(
             try:
                 board = chess.Board(fen)
             except ValueError:
+                print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             # Verify it's the player's turn (cache should guarantee this, but be safe).
             if board.turn != player_color:
+                print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
                 continue
+
+            if verbose:
+                print(
+                    f"{tag} Position {i}/{len(sorted_fens)} — "
+                    f"{total} game{'s' if total != 1 else ''}, "
+                    f"{len(qualifying_moves)} qualifying move{'s' if len(qualifying_moves) != 1 else ''}",
+                    flush=True,
+                )
 
             # One MultiPV call replaces 1 + len(qualifying_moves) separate calls.
             # Request enough lines to cover all qualifying moves plus the best move.
             multipv_k = min(max(len(qualifying_moves) + 1, 5), 20)
             infos = eng.analyse_multipv(board, depth=depth, multipv=multipv_k)
             if not infos or not infos[0].get("pv"):
+                print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             best_move = infos[0]["pv"][0]
             if best_move not in board.legal_moves:
+                print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             best_cp = float(
                 infos[0]["score"].pov(player_color).score(mate_score=10_000) or 0
             )
+            best_move_san = board.san(best_move)
 
             # Build a UCI → eval_cp lookup from the MultiPV results.
             multipv_evals: dict[str, float] = {}
@@ -217,7 +230,15 @@ def analyze_habits(
                     cp = float(info["score"].pov(player_color).score(mate_score=10_000) or 0)
                     multipv_evals[info["pv"][0].uci()] = cp
 
+            if verbose:
+                print(
+                    f"{tag}   Engine best: {best_move_san}  "
+                    f"(depth {depth}, eval {best_cp / 100:+.2f})",
+                    flush=True,
+                )
+
             # Evaluate each qualifying player move and flag if suboptimal.
+            pos_habits = 0
             for move_data in qualifying_moves:
                 player_uci = move_data.get("uci", "")
                 try:
@@ -227,6 +248,11 @@ def analyze_habits(
                 if player_move not in board.legal_moves:
                     continue
                 if player_move == best_move:
+                    if verbose:
+                        print(
+                            f"{tag}   {board.san(player_move)} — already best move, skipping",
+                            flush=True,
+                        )
                     continue  # player already finds the best move here
 
                 move_games = (
@@ -246,20 +272,32 @@ def analyze_habits(
                     player_cp = _cp_pov(info_after["score"], player_color)
 
                 eval_gap = best_cp - player_cp
+                player_move_san = board.san(player_move)
+
+                if verbose:
+                    gap_status = "→ INACCURACY" if eval_gap >= min_eval_gap else "ok"
+                    print(
+                        f"{tag}   {player_move_san} ({move_games}g): "
+                        f"eval {player_cp / 100:+.2f} vs best {best_move_san} {best_cp / 100:+.2f} "
+                        f"— gap {eval_gap:+.0f}cp  [{gap_status}]",
+                        flush=True,
+                    )
+
                 if eval_gap < min_eval_gap:
                     continue
 
                 habit_score = move_games * eval_gap / 100
+                pos_habits += 1
 
                 results.append(
                     HabitInaccuracy(
                         fen=fen,
                         total_games=total,
                         player_move_uci=player_uci,
-                        player_move_san=board.san(player_move),
+                        player_move_san=player_move_san,
                         player_move_games=move_games,
                         best_move_uci=best_move.uci(),
-                        best_move_san=board.san(best_move),
+                        best_move_san=best_move_san,
                         eval_cp=best_cp,
                         player_eval_cp=player_cp,
                         eval_gap_cp=eval_gap,
@@ -268,12 +306,14 @@ def analyze_habits(
                     )
                 )
 
-            if verbose and i % 10 == 0:
+            if verbose and pos_habits > 0:
                 print(
-                    f"{tag} {i}/{len(sorted_fens)} positions evaluated, "
-                    f"{len(results)} inaccuracies so far",
+                    f"{tag}   ↳ {pos_habits} inaccurac{'y' if pos_habits == 1 else 'ies'} flagged "
+                    f"({len(results)} total so far)",
                     flush=True,
                 )
+
+            print(f"[progress] {i}/{len(sorted_fens)}", flush=True)
 
     results.sort(key=lambda h: -h.score)
     results = results[:max_positions]

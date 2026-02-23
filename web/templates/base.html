@@ -79,20 +79,63 @@
     .status-done      { color: #4ade80; } /* green-400 */
     .status-failed    { color: #f87171; } /* red-400   */
     .status-cancelled { color: #6b7280; } /* gray-500  */
+
+    .nav-drawer-link {
+      display: block;
+      padding: 8px 4px;
+      font-size: 0.9rem;
+      color: #d1d5db;
+      text-decoration: none;
+      border-radius: 4px;
+      transition: color 0.15s;
+    }
+    .nav-drawer-link:hover { color: #f59e0b; }
   </style>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen">
   <!-- Nav -->
-  <nav class="border-b border-gray-800 px-6 py-3 flex items-center gap-6">
-    <a href="/" class="font-bold text-amber-400 text-lg tracking-tight">♘ mysecond</a>
-    <a href="/fetch" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Fetch Games</a>
-    <a href="/import-pgn" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Import PGN</a>
-    <a href="/search" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Find Novelties</a>
-    <a href="/repertoire" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Extract Repertoire</a>
-    <a href="/habits" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Analyse Habits</a>
-    <a href="/strategise" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Strategise</a>
-    <a href="/jobs" class="text-sm text-gray-300 hover:text-amber-400 transition-colors ml-auto">Job History</a>
+  <nav class="border-b border-gray-800 px-6 py-3 flex items-center gap-6" id="main-nav">
+    <a href="/" class="font-bold text-amber-400 text-lg tracking-tight shrink-0">♘ mysecond</a>
+
+    <!-- Desktop links -->
+    <div class="hidden md:flex items-center gap-6 flex-1">
+      <a href="/fetch"      class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Fetch Games</a>
+      <a href="/import-pgn" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Import PGN</a>
+      <a href="/search"     class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Find Novelties</a>
+      <a href="/repertoire" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Extract Repertoire</a>
+      <a href="/habits"     class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Analyse Habits</a>
+      <a href="/strategise" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Strategise</a>
+      <a href="/jobs"       class="text-sm text-gray-300 hover:text-amber-400 transition-colors ml-auto">Job History</a>
+    </div>
+
+    <!-- Mobile hamburger button -->
+    <button id="nav-toggle" class="md:hidden ml-auto p-1 text-gray-400 hover:text-gray-100 transition-colors"
+            onclick="toggleNav()" aria-label="Toggle menu">
+      <svg id="nav-icon-open"   width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="3" y1="6"  x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+      <svg id="nav-icon-close" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           style="display:none;">
+        <line x1="5" y1="5" x2="19" y2="19"/>
+        <line x1="19" y1="5" x2="5" y2="19"/>
+      </svg>
+    </button>
   </nav>
+
+  <!-- Mobile nav drawer -->
+  <div id="nav-drawer" style="display:none;"
+       class="md:hidden border-b border-gray-800 bg-gray-950 px-6 py-3 flex flex-col gap-1">
+    <a href="/fetch"      class="nav-drawer-link">Fetch Games</a>
+    <a href="/import-pgn" class="nav-drawer-link">Import PGN</a>
+    <a href="/search"     class="nav-drawer-link">Find Novelties</a>
+    <a href="/repertoire" class="nav-drawer-link">Extract Repertoire</a>
+    <a href="/habits"     class="nav-drawer-link">Analyse Habits</a>
+    <a href="/strategise" class="nav-drawer-link">Strategise</a>
+    <div style="height:1px;background:#1f2937;margin:4px 0;"></div>
+    <a href="/jobs"       class="nav-drawer-link">Job History</a>
+  </div>
 
   <!-- Main content -->
   <main class="{% block main_class %}max-w-4xl{% endblock %} mx-auto px-6 {% block main_padding %}py-8{% endblock %}">
@@ -100,6 +143,25 @@
   </main>
 
   <script src="/static/app.js"></script>
+  <script>
+    function toggleNav() {
+      const drawer = document.getElementById('nav-drawer');
+      const open   = document.getElementById('nav-icon-open');
+      const close  = document.getElementById('nav-icon-close');
+      const shown  = drawer.style.display !== 'none';
+      drawer.style.display = shown ? 'none' : 'flex';
+      open.style.display   = shown ? '' : 'none';
+      close.style.display  = shown ? 'none' : '';
+    }
+    // Close drawer when a link is tapped
+    document.addEventListener('click', e => {
+      if (e.target.closest('#nav-drawer a')) {
+        document.getElementById('nav-drawer').style.display = 'none';
+        document.getElementById('nav-icon-open').style.display  = '';
+        document.getElementById('nav-icon-close').style.display = 'none';
+      }
+    });
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

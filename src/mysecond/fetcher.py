@@ -219,6 +219,22 @@ def fetch_player_games_chesscom(
     return len(book)
 
 
+def download_raw_pgn(
+    username: str,
+    color: str,
+    platform: str = "lichess",
+    speeds: str = "blitz,rapid,classical",
+    max_games: int = 200,
+) -> str:
+    """Download raw PGN text without building the opening-book cache.
+
+    Useful for game-phase analysis that needs the full move sequence.
+    """
+    if platform == "chesscom":
+        return _download_chesscom_pgn(username, color, speeds, max_games, since_ts=None)
+    return _download_pgn(username, color, speeds, max_games, since_ts=None)
+
+
 def last_fetch_ts(username: str, color: str, speeds: str, cache: Cache, platform: str = "lichess") -> int | None:
     """Return the Unix-ms timestamp of the last successful fetch, or None."""
     backend = _backend_key(username, color, speeds, platform=platform)

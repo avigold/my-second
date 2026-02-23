@@ -1,5 +1,28 @@
 import React, { useEffect, useState } from 'react'
 import Chessground from '@react-chess/chessground'
+import ReactMarkdown from 'react-markdown'
+import { Chess } from 'chess.js'
+
+// Resolve a move to { fen: postMoveFen, orig, dest }.
+// Priority: explicit fen_after > orig/dest UCI > SAN string > fallback (pre-move FEN, no highlight).
+function resolveMove(fen, fenAfter, orig, dest, moveSan) {
+  if (fenAfter && orig && dest) return { fen: fenAfter, orig, dest }
+  if (orig && dest) {
+    try {
+      const c = new Chess(fen)
+      c.move({ from: orig, to: dest, promotion: 'q' })
+      return { fen: c.fen(), orig, dest }
+    } catch {}
+  }
+  if (moveSan) {
+    try {
+      const c = new Chess(fen)
+      const m = c.move(moveSan)
+      if (m) return { fen: c.fen(), orig: m.from, dest: m.to }
+    } catch {}
+  }
+  return { fen, orig: null, dest: null }
+}
 
 // ---------------------------------------------------------------------------
 // Colour palette
@@ -134,8 +157,8 @@ function BriefTab({ data }) {
 
       {/* Style profiles side by side */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-        <StyleCard profile={data.player_style}   meta={data.player}   accentColor={C.amber}  />
-        <StyleCard profile={data.opponent_style} meta={data.opponent} accentColor={C.redDim} />
+        <StyleCard profile={data.player_style}   phaseStats={data.player_phase_stats}   meta={data.player}   accentColor={C.amber}  />
+        <StyleCard profile={data.opponent_style} phaseStats={data.opponent_phase_stats} meta={data.opponent} accentColor={C.redDim} />
       </div>
 
       {/* AI brief or rule-based summary */}
@@ -149,8 +172,9 @@ function BriefTab({ data }) {
                            border: `1px solid ${C.blueDim}40`, borderRadius: 99,
                            padding: '1px 7px' }}>AI · Claude</span>
           </div>
-          <div style={{ color: C.textPri, fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-            {data.strategic_brief}
+          <div style={{ color: C.textPri, fontSize: 14, lineHeight: 1.7 }}
+               className="md-brief">
+            <ReactMarkdown>{data.strategic_brief}</ReactMarkdown>
           </div>
         </div>
       ) : (
@@ -160,7 +184,7 @@ function BriefTab({ data }) {
   )
 }
 
-function StyleCard({ profile, meta, accentColor }) {
+function StyleCard({ profile, phaseStats, meta, accentColor }) {
   const isPlayer = accentColor === C.amber
   const label    = isPlayer ? 'Your Style' : 'Opponent Style'
 
@@ -171,19 +195,61 @@ function StyleCard({ profile, meta, accentColor }) {
                     letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
       <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>{meta.username}</div>
 
-      <StatRow label="Win rate"   value={`${(profile.avg_win_rate * 100).toFixed(0)}%`}
+      <StatRow label="Win rate"    value={`${(profile.avg_win_rate * 100).toFixed(0)}%`}
                bar={profile.avg_win_rate}
                color={profile.avg_win_rate >= 0.5 ? C.green : C.redDim} />
-      <StatRow label="Aggression" value={`${(profile.aggression_score * 100).toFixed(0)}%`}
-               bar={profile.aggression_score} color={C.amber} />
-      <StatRow label="Solidity"   value={`${(profile.solidness_score * 100).toFixed(0)}%`}
+      <StatRow label="Decisive"    value={`${(profile.decisive_rate * 100).toFixed(0)}%`}
+               bar={profile.decisive_rate} color={C.amber} />
+      <StatRow label="Draw rate"   value={`${(profile.draw_rate * 100).toFixed(0)}%`}
+               bar={profile.draw_rate} color={C.blueDim} />
+      <StatRow label="Solidity"    value={`${(profile.solidness_score * 100).toFixed(0)}%`}
                bar={profile.solidness_score} color={C.blue} />
-      <StatRow label="Diversity"  value={`${(profile.opening_diversity * 100).toFixed(0)}%`}
+      <StatRow label="Diversity"   value={`${(profile.opening_diversity * 100).toFixed(0)}%`}
                bar={profile.opening_diversity} color={C.textSec} />
 
-      <div style={{ marginTop: 14, fontSize: 11, color: C.textFaint }}>
+      {phaseStats && phaseStats.total_games > 0 && (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.border2}` }}>
+          <div style={{ fontSize: 10, color: C.textFaint, textTransform: 'uppercase',
+                        letterSpacing: '0.05em', marginBottom: 6 }}>Game Phases</div>
+          {phaseStats.avg_length_by_speed && Object.entries(phaseStats.avg_length_by_speed).map(([speed, len]) => (
+            <PhaseRow key={speed} label={`${speed[0].toUpperCase() + speed.slice(1)} length`} value={`${len} moves`} />
+          ))}
+          <PhaseRow label="Endgame rate"  value={`${(phaseStats.endgame_reach_rate * 100).toFixed(0)}%`} />
+          <PhaseRow label="EG conversion" value={`${(phaseStats.endgame_conversion_rate * 100).toFixed(0)}%`} />
+        </div>
+      )}
+
+      {profile.top_openings && profile.top_openings.length > 0 && (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.border2}` }}>
+          <div style={{ fontSize: 10, color: C.textFaint, textTransform: 'uppercase',
+                        letterSpacing: '0.05em', marginBottom: 6 }}>Top Lines</div>
+          {profile.top_openings.slice(0, 4).map((o, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between',
+                                  fontSize: 11, marginBottom: 3, gap: 8 }}>
+              <span style={{ color: C.textSec, fontFamily: 'monospace', overflow: 'hidden',
+                             textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                {o.move_sequence || o.fen}
+              </span>
+              <span style={{ color: accentColor, fontFamily: 'monospace', flexShrink: 0 }}>
+                {o.games}g
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop: 12, fontSize: 11, color: C.textFaint }}>
         {profile.total_positions.toLocaleString()} positions · {profile.total_moves_indexed.toLocaleString()} moves indexed
       </div>
+    </div>
+  )
+}
+
+function PhaseRow({ label, value }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+      <span style={{ fontSize: 11, color: C.textDim }}>{label}</span>
+      <span style={{ fontSize: 11, color: C.textSec, fontFamily: 'monospace' }}>{value}</span>
     </div>
   )
 }
@@ -278,13 +344,16 @@ function BattlegroundsTab({ data }) {
                   <Td mono>{bg.player_top_move_san}</Td>
                   <Td mono dim>{bg.opponent_top_response_san}</Td>
                 </tr>
-                {isSelected && (
-                  <tr style={{ background: '#0a0f1a' }}>
-                    <td colSpan={8} style={{ padding: '16px 8px' }}>
-                      <MiniBoard fen={bg.fen} side={data.player.color} />
-                    </td>
-                  </tr>
-                )}
+                {isSelected && (() => {
+                  const mv = resolveMove(bg.fen, bg.fen_after, bg.player_top_move_orig, bg.player_top_move_dest, bg.player_top_move_san)
+                  return (
+                    <tr style={{ background: '#0a0f1a' }}>
+                      <td colSpan={8} style={{ padding: '16px 8px' }}>
+                        <MiniBoard fen={mv.fen} side={data.player.color} orig={mv.orig} dest={mv.dest} />
+                      </td>
+                    </tr>
+                  )
+                })()}
               </React.Fragment>
             )
           })}
@@ -385,9 +454,11 @@ function PositionsTab({ data, side }) {
             </span>
             <span style={{ color: C.textSec, fontSize: 13 }}>{positions[selected].label}</span>
           </div>
-          <MiniBoard fen={positions[selected].fen} side={side}
-                     orig={positions[selected].move_orig} dest={positions[selected].move_dest}
-                     size={400} />
+          {(() => {
+            const pos = positions[selected]
+            const mv = resolveMove(pos.fen, pos.fen_after, pos.move_orig, pos.move_dest, pos.move_san)
+            return <MiniBoard fen={mv.fen} side={side} orig={mv.orig} dest={mv.dest} size={400} />
+          })()}
         </div>
       )}
     </div>
@@ -430,20 +501,22 @@ function HabitTable({ items, selected, onSelect, side, playerLabel, accentColor 
                 <Td align="right"><span style={{ color: C.amber }}>{item.score.toFixed(1)}</span></Td>
                 {extraCol && <Td align="right" dim>{extraCol(item)}</Td>}
               </tr>
-              {isSelected && (
-                <tr style={{ background: '#0a0f1a' }}>
-                  <td colSpan={extraCol ? 7 : 6} style={{ padding: '16px 8px' }}>
-                    <MiniBoard fen={item.fen} side={side}
-                               orig={item.player_move_orig} dest={item.player_move_dest} />
-                    <div style={{ marginTop: 10, fontSize: 12, color: C.textSec, maxWidth: 500 }}>
-                      <span style={{ color: accentColor, fontWeight: 600 }}>{item.player_move_san}</span>
-                      {' '}played {item.total_games} times — eval gap{' '}
-                      <span style={{ color: C.redDim }}>{item.eval_gap_cp > 0 ? '+' : ''}{item.eval_gap_cp.toFixed(0)}cp</span>.
-                      {' '}Best: <span style={{ color: C.greenDim, fontWeight: 600 }}>{item.best_move_san}</span>.
-                    </div>
-                  </td>
-                </tr>
-              )}
+              {isSelected && (() => {
+                const mv = resolveMove(item.fen, item.fen_after, item.player_move_orig, item.player_move_dest, item.player_move_san)
+                return (
+                  <tr style={{ background: '#0a0f1a' }}>
+                    <td colSpan={extraCol ? 7 : 6} style={{ padding: '16px 8px' }}>
+                      <MiniBoard fen={mv.fen} side={side} orig={mv.orig} dest={mv.dest} />
+                      <div style={{ marginTop: 10, fontSize: 12, color: C.textSec, maxWidth: 500 }}>
+                        <span style={{ color: accentColor, fontWeight: 600 }}>{item.player_move_san}</span>
+                        {' '}played {item.total_games} times — eval gap{' '}
+                        <span style={{ color: C.redDim }}>{item.eval_gap_cp > 0 ? '+' : ''}{item.eval_gap_cp.toFixed(0)}cp</span>.
+                        {' '}Best: <span style={{ color: C.greenDim, fontWeight: 600 }}>{item.best_move_san}</span>.
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })()}
             </React.Fragment>
           )
         })}

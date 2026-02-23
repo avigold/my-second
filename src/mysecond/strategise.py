@@ -4,14 +4,15 @@ How it works
 ------------
 1. Auto-fetch both players' games if their caches are empty.
 2. Run habit analysis on both players with Stockfish.
-3. Compute style profiles from each player's cache (aggression, solidness,
-   opening diversity, win rates).
-4. Find opening battlegrounds: positions where both players have cache data
+3. Compute style profiles from each player's cache (draw rate, solidness,
+   opening diversity, win rates, decoded opening lines).
+4. Fetch a sample of raw games and compute game-phase statistics.
+5. Find opening battlegrounds: positions where both players have cache data
    one move apart, so a direct comparison is possible.
-5. Map opponent weaknesses reachable from the player's own repertoire.
-6. Map the player's prep gaps where the opponent is strong.
-7. Optionally call the Claude API to synthesise a strategic brief.
-8. Write a structured JSON report to ``out_path``.
+6. Map opponent weaknesses reachable from the player's own repertoire.
+7. Map the player's prep gaps where the opponent is strong.
+8. Optionally call the Claude API to synthesise a strategic brief.
+9. Write a structured JSON report to ``out_path``.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,7 @@ import chess
 from .cache import Cache
 from .engine import Engine
 from .fetcher import _backend_key, fetch_player_games, fetch_player_games_chesscom
+from .game_phases import analyze_game_phases
 from .habits import HabitInaccuracy, analyze_habits
 
 # When running two habit analyses in parallel each gets half the cores.
@@ -88,8 +91,8 @@ def strategise(
          f"[strategise] {len(player_index)} positions for {player}, "
          f"{len(opponent_index)} for {opponent}.")
 
-    # ── 2. Habit analysis (both players in parallel) ─────────────────────────
-    _log(verbose, f"[strategise] Analysing habits for {player} and {opponent} in parallel …")
+    # ── 2. Habit analysis + phase analysis (all in parallel) ─────────────────
+    _log(verbose, f"[strategise] Analysing habits and game phases in parallel …")
 
     def _habits(username, color, speeds, platform):
         return analyze_habits(
@@ -100,11 +103,22 @@ def strategise(
             engine_threads=_PARALLEL_THREADS,
         )
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        opp_future = pool.submit(_habits, opponent, opponent_color, opponent_speeds, opponent_platform)
-        plr_future = pool.submit(_habits, player,   player_color,   player_speeds,   player_platform)
-        opponent_habits = opp_future.result()
-        player_habits   = plr_future.result()
+    def _phases(username, color, platform, speeds):
+        return analyze_game_phases(
+            username=username, color=color, platform=platform,
+            speeds=speeds, max_games=200, verbose=verbose,
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        opp_future        = pool.submit(_habits, opponent, opponent_color, opponent_speeds, opponent_platform)
+        plr_future        = pool.submit(_habits, player,   player_color,   player_speeds,   player_platform)
+        plr_phase_future  = pool.submit(_phases, player,   player_color,   player_platform, player_speeds)
+        opp_phase_future  = pool.submit(_phases, opponent, opponent_color, opponent_platform, opponent_speeds)
+
+        opponent_habits  = opp_future.result()
+        player_habits    = plr_future.result()
+        player_phase     = plr_phase_future.result()
+        opponent_phase   = opp_phase_future.result()
 
     _log(verbose, f"[strategise] {len(opponent_habits)} opponent + {len(player_habits)} player habit inaccuracies found.")
 
@@ -148,6 +162,7 @@ def strategise(
                 player=player, player_color=player_color, player_platform=player_platform,
                 opponent=opponent, opponent_color=opponent_color, opponent_platform=opponent_platform,
                 player_style=player_style, opponent_style=opponent_style,
+                player_phase=player_phase, opponent_phase=opponent_phase,
                 battlegrounds=battlegrounds,
                 opponent_weaknesses=opponent_weaknesses,
                 prep_gaps=prep_gaps,
@@ -175,6 +190,8 @@ def strategise(
         },
         "player_style":          player_style,
         "opponent_style":        opponent_style,
+        "player_phase_stats":    player_phase,
+        "opponent_phase_stats":  opponent_phase,
         "battlegrounds":         battlegrounds,
         "opponent_weaknesses":   opponent_weaknesses,
         "prep_gaps":             prep_gaps,
@@ -223,6 +240,161 @@ def _fetch(username: str, color: str, platform: str, speeds: str,
 
 
 # ---------------------------------------------------------------------------
+# Opening lines decoder
+# ---------------------------------------------------------------------------
+
+
+def _build_opening_lines(
+    cache_index: dict[str, dict[str, Any]],
+    color: str,
+    top_n: int = 10,
+) -> list[dict[str, Any]]:
+    """BFS from the starting position through the cache to decode opening move sequences.
+
+    Returns a list of dicts sorted by game count::
+
+        {"move_sequence": "1.e4 c5 2.Nf3 d6", "games": 420, "win_rate": 0.52, "fen": "..."}
+
+    The BFS alternates between:
+    - Player's positions (from cache): expand the top player moves.
+    - Opponent's positions: try every legal move and keep only those that land
+      in a cached player position (very selective, fast in practice).
+    """
+    if not cache_index:
+        return []
+
+    player_chess = chess.WHITE if color == "white" else chess.BLACK
+    start_board  = chess.Board()
+    start_fen    = start_board.fen()
+
+    # Early-exit for white player if the root isn't in the cache.
+    if player_chess == chess.WHITE and start_fen not in cache_index:
+        return []
+
+    # path[fen] = ordered list of SAN strings from move 1
+    # e.g. ["e4", "c5", "Nf3", "d6"]  →  "1.e4 c5 2.Nf3 d6"
+    path: dict[str, list[str]] = {}
+
+    queue: deque[tuple[chess.Board, list[str]]] = deque([(start_board.copy(), [])])
+    visited: set[str] = {start_fen}
+    max_nodes = 5_000
+
+    while queue and len(visited) < max_nodes:
+        board, sans = queue.popleft()
+
+        if len(sans) >= 12:            # cap at ~6 full moves
+            continue
+
+        fen = board.fen()
+
+        if board.turn == player_chess:
+            # Player's position — use the cache.
+            payload = cache_index.get(fen)
+            if payload is None:
+                continue
+
+            # Record the path to this position (skip the root itself).
+            if sans:
+                path[fen] = sans[:]
+
+            # Expand the player's top moves (up to 4).
+            top_moves = sorted(
+                payload.get("moves", []),
+                key=lambda m: -(m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)),
+            )[:4]
+
+            for move_data in top_moves:
+                uci = move_data.get("uci", "")
+                if not uci:
+                    continue
+                try:
+                    move = chess.Move.from_uci(uci)
+                    san  = board.san(move)
+                    after = board.copy()
+                    after.push(move)
+                    next_fen = after.fen()
+                except Exception:
+                    continue
+
+                if next_fen not in visited:
+                    visited.add(next_fen)
+                    queue.append((after, sans + [san]))
+
+        else:
+            # Opponent's position — enumerate all legal moves and keep only
+            # those that lead to a cached player position.
+            for opp_move in board.legal_moves:
+                try:
+                    opp_san = board.san(opp_move)
+                    after   = board.copy()
+                    after.push(opp_move)
+                    next_fen = after.fen()
+                except Exception:
+                    continue
+
+                if next_fen not in visited and next_fen in cache_index:
+                    visited.add(next_fen)
+                    queue.append((after, sans + [opp_san]))
+
+    # Helper: convert ordered SAN list to PGN notation "1.e4 c5 2.Nf3 d6"
+    def _to_pgn(sans: list[str]) -> str:
+        parts: list[str] = []
+        for i, san in enumerate(sans):
+            if i % 2 == 0:
+                parts.append(f"{i // 2 + 1}.{san}")
+            else:
+                parts.append(san)
+        return " ".join(parts)
+
+    # Pick the top_n positions by game count, build output.
+    top_fens = sorted(
+        cache_index.items(),
+        key=lambda kv: -(kv[1].get("white", 0) + kv[1].get("draws", 0) + kv[1].get("black", 0)),
+    )
+
+    results: list[dict[str, Any]] = []
+    seen_seqs: set[str] = set()
+
+    for fen, payload in top_fens:
+        if fen not in path or not path[fen]:
+            continue
+
+        pgn = _to_pgn(path[fen])
+        if not pgn or pgn in seen_seqs:
+            continue
+        seen_seqs.add(pgn)
+
+        g     = payload.get("white", 0) + payload.get("draws", 0) + payload.get("black", 0)
+        w_cnt = payload.get("white", 0) if color == "white" else payload.get("black", 0)
+
+        # Best next move from this position
+        top_move_san = ""
+        moves = payload.get("moves", [])
+        if moves:
+            top_m = max(moves, key=lambda m: m.get("white", 0) + m.get("draws", 0) + m.get("black", 0))
+            uci = top_m.get("uci", "")
+            if uci:
+                try:
+                    board_tmp = chess.Board(fen)
+                    top_move_san = board_tmp.san(chess.Move.from_uci(uci))
+                except Exception:
+                    top_move_san = uci
+
+        results.append({
+            "move_sequence": pgn,
+            "games":         g,
+            "win_rate":      round(w_cnt / g if g > 0 else 0.0, 3),
+            "fen":           fen,
+            "top_move_san":  top_move_san,
+        })
+
+        if len(results) >= top_n:
+            break
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Style profile
 # ---------------------------------------------------------------------------
 
@@ -239,7 +411,9 @@ def _compute_style_profile(
 
     all_win_rates: list[float] = []
     total_moves_indexed = 0
-    position_branching: list[float] = []
+
+    # Aggregate win/draw/loss across all positions for draw_rate.
+    agg_white = agg_draws = agg_black = 0
 
     for fen, payload in cache_index.items():
         w = payload.get("white", 0)
@@ -248,82 +422,46 @@ def _compute_style_profile(
         total = w + d + b
         if total == 0:
             continue
+        agg_white += w
+        agg_draws += d
+        agg_black += b
         win_rate = (w if color == "white" else b) / total
         all_win_rates.append(win_rate)
-        moves = payload.get("moves", [])
-        total_moves_indexed += len(moves)
-        position_branching.append(len(moves))
+        total_moves_indexed += len(payload.get("moves", []))
 
     n = len(all_win_rates)
     if n == 0:
         return _empty_profile()
 
-    avg_branching = sum(position_branching) / n
-    avg_win_rate  = sum(all_win_rates) / n
-    solidness     = sum(1 for r in all_win_rates if r > 0.5) / n
+    avg_win_rate = sum(all_win_rates) / n
+    solidness    = sum(1 for r in all_win_rates if r > 0.5) / n
 
-    # Aggression proxy: fraction of positions with above-average branching
-    aggression = sum(1 for b in position_branching if b > avg_branching) / n
+    agg_total    = agg_white + agg_draws + agg_black or 1
+    draw_rate    = agg_draws / agg_total
+    decisive_rate = 1.0 - draw_rate
 
     # Opening diversity: 1 - (top_move_fraction at root)
     root_payload = cache_index.get(chess.STARTING_FEN, {})
-    root_w = root_payload.get("white", 0)
-    root_d = root_payload.get("draws", 0)
-    root_b = root_payload.get("black", 0)
-    root_total = root_w + root_d + root_b
-    root_moves = root_payload.get("moves", [])
+    root_total   = (root_payload.get("white", 0)
+                    + root_payload.get("draws", 0)
+                    + root_payload.get("black", 0))
+    root_moves   = root_payload.get("moves", [])
     if root_total > 0 and root_moves:
-        top_root = max(
-            m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)
-            for m in root_moves
-        )
+        top_root  = max(m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)
+                        for m in root_moves)
         diversity = 1.0 - top_root / root_total
     else:
         diversity = 0.5
 
-    # Top openings by game count
-    sorted_fens = sorted(
-        cache_index.items(),
-        key=lambda x: x[1].get("white", 0) + x[1].get("draws", 0) + x[1].get("black", 0),
-        reverse=True,
-    )
-    top_openings: list[dict[str, Any]] = []
-    for fen, payload in sorted_fens[:10]:
-        w = payload.get("white", 0)
-        d = payload.get("draws", 0)
-        b = payload.get("black", 0)
-        total = w + d + b
-        if total == 0:
-            continue
-        win_rate = (w if color == "white" else b) / total
-        moves = payload.get("moves", [])
-        top_move_san = ""
-        if moves:
-            top_m = max(
-                moves,
-                key=lambda m: m.get("white", 0) + m.get("draws", 0) + m.get("black", 0),
-            )
-            uci = top_m.get("uci", "")
-            if uci:
-                try:
-                    board = chess.Board(fen)
-                    if board.turn == player_chess_color:
-                        top_move_san = board.san(chess.Move.from_uci(uci))
-                except Exception:
-                    top_move_san = uci
-        top_openings.append({
-            "fen":          fen,
-            "games":        total,
-            "win_rate":     round(win_rate, 3),
-            "top_move_san": top_move_san,
-        })
+    # Decode top opening lines via BFS.
+    top_openings = _build_opening_lines(cache_index, color, top_n=10)
 
     return {
         "total_positions":     len(cache_index),
         "total_moves_indexed": total_moves_indexed,
-        "avg_branching":       round(avg_branching, 2),
         "avg_win_rate":        round(avg_win_rate, 3),
-        "aggression_score":    round(aggression, 3),
+        "draw_rate":           round(draw_rate, 3),
+        "decisive_rate":       round(decisive_rate, 3),
         "solidness_score":     round(solidness, 3),
         "opening_diversity":   round(diversity, 3),
         "top_openings":        top_openings,
@@ -332,10 +470,14 @@ def _compute_style_profile(
 
 def _empty_profile() -> dict[str, Any]:
     return {
-        "total_positions": 0, "total_moves_indexed": 0,
-        "avg_branching": 0.0, "avg_win_rate": 0.0,
-        "aggression_score": 0.0, "solidness_score": 0.0,
-        "opening_diversity": 0.0, "top_openings": [],
+        "total_positions":     0,
+        "total_moves_indexed": 0,
+        "avg_win_rate":        0.0,
+        "draw_rate":           0.0,
+        "decisive_rate":       0.0,
+        "solidness_score":     0.0,
+        "opening_diversity":   0.0,
+        "top_openings":        [],
     }
 
 
@@ -374,10 +516,7 @@ def _compute_battlegrounds(
         if not moves:
             continue
 
-        top_m = max(
-            moves,
-            key=lambda m: m.get("white", 0) + m.get("draws", 0) + m.get("black", 0),
-        )
+        top_m   = max(moves, key=lambda m: m.get("white", 0) + m.get("draws", 0) + m.get("black", 0))
         top_uci = top_m.get("uci", "")
         if not top_uci:
             continue
@@ -391,7 +530,7 @@ def _compute_battlegrounds(
         except ValueError:
             continue
 
-        opp_fen = board_after.fen()
+        opp_fen     = board_after.fen()
         opp_payload = opponent_index.get(opp_fen)
         if opp_payload is None:
             continue
@@ -403,46 +542,41 @@ def _compute_battlegrounds(
         if o_total < min_games:
             continue
 
-        # Win rates from each player's perspective
         p_win_rate = (p_w if player_color == "white" else p_b) / p_total
-        opp_color  = "black" if player_color == "white" else "white"
-        o_win_rate = (o_b if player_color == "white" else o_w) / o_total  # opp's wins
+        o_win_rate = (o_b if player_color == "white" else o_w) / o_total
 
         adv_delta = p_win_rate - (1.0 - o_win_rate)
         advantage = "player" if adv_delta > 0.08 else "opponent" if adv_delta < -0.08 else "equal"
 
-        # Player's top move SAN
         player_top_san = ""
         try:
             player_top_san = chess.Board(fen).san(chess.Move.from_uci(top_uci))
         except Exception:
             pass
 
-        # Opponent's top response SAN
-        opp_moves = opp_payload.get("moves", [])
+        opp_moves   = opp_payload.get("moves", [])
         opp_top_san = ""
         if opp_moves:
-            opp_top_m = max(
-                opp_moves,
-                key=lambda m: m.get("white", 0) + m.get("draws", 0) + m.get("black", 0),
-            )
-            opp_uci = opp_top_m.get("uci", "")
+            opp_top_m = max(opp_moves, key=lambda m: m.get("white", 0) + m.get("draws", 0) + m.get("black", 0))
+            opp_uci   = opp_top_m.get("uci", "")
             if opp_uci:
                 try:
-                    opp_board = board_after.copy()
-                    opp_top_san = opp_board.san(chess.Move.from_uci(opp_uci))
+                    opp_top_san = board_after.copy().san(chess.Move.from_uci(opp_uci))
                 except Exception:
                     pass
 
         results.append({
-            "fen":                     fen,
-            "player_games":            p_total,
-            "player_win_rate":         round(p_win_rate, 3),
-            "opponent_games":          o_total,
-            "opponent_win_rate":       round(o_win_rate, 3),
-            "advantage":               advantage,
-            "advantage_delta":         round(adv_delta, 3),
-            "player_top_move_san":     player_top_san,
+            "fen":                       fen,
+            "fen_after":                 opp_fen,   # FEN after player's top move
+            "player_games":              p_total,
+            "player_win_rate":           round(p_win_rate, 3),
+            "opponent_games":            o_total,
+            "opponent_win_rate":         round(o_win_rate, 3),
+            "advantage":                 advantage,
+            "advantage_delta":           round(adv_delta, 3),
+            "player_top_move_san":       player_top_san,
+            "player_top_move_orig":      top_uci[:2] if len(top_uci) >= 4 else "",
+            "player_top_move_dest":      top_uci[2:4] if len(top_uci) >= 4 else "",
             "opponent_top_response_san": opp_top_san,
         })
 
@@ -456,10 +590,18 @@ def _compute_battlegrounds(
 
 
 def _habit_to_dict(h: HabitInaccuracy) -> dict[str, Any]:
-    d = dataclasses.asdict(h)
-    uci = h.player_move_uci
+    d    = dataclasses.asdict(h)
+    uci  = h.player_move_uci
     d["player_move_orig"] = uci[:2] if len(uci) >= 4 else ""
     d["player_move_dest"] = uci[2:4] if len(uci) >= 4 else ""
+    # FEN *after* the player's habitual move — used for correct board rendering
+    # (chessground's lastMove expects the piece to already be at the dest square).
+    try:
+        b = chess.Board(h.fen)
+        b.push(chess.Move.from_uci(uci))
+        d["fen_after"] = b.fen()
+    except Exception:
+        d["fen_after"] = h.fen
     buci = h.best_move_uci
     d["best_move_orig"] = buci[:2] if len(buci) >= 4 else ""
     d["best_move_dest"] = buci[2:4] if len(buci) >= 4 else ""
@@ -477,8 +619,6 @@ def _reachable_weaknesses(
     We build the set of positions reachable after the player plays any listed
     move, then check which opponent habits land in that set.
     """
-    # Build set of black-to-move FENs reachable after one player move.
-    # Limit to the 2000 most-played positions to keep computation fast.
     top_positions = sorted(
         player_index.items(),
         key=lambda kv: kv[1].get("white", 0) + kv[1].get("draws", 0) + kv[1].get("black", 0),
@@ -520,12 +660,7 @@ def _prep_gaps(
     opponent_index: dict[str, dict[str, Any]],
     rank_limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Player habit inaccuracies where the opponent has data in the resulting position.
-
-    player_index has WHITE-to-move FENs; opponent_index has BLACK-to-move FENs.
-    After the player plays their habit move the position becomes black-to-move,
-    which is what we look up in opponent_index.
-    """
+    """Player habit inaccuracies where the opponent has data in the resulting position."""
     results = []
     for rank, habit in enumerate(player_habits, 1):
         try:
@@ -537,7 +672,9 @@ def _prep_gaps(
         opp_payload = opponent_index.get(resulting_fen)
         if opp_payload is None:
             continue
-        o_total = opp_payload.get("white", 0) + opp_payload.get("draws", 0) + opp_payload.get("black", 0)
+        o_total = (opp_payload.get("white", 0)
+                   + opp_payload.get("draws", 0)
+                   + opp_payload.get("black", 0))
         d = _habit_to_dict(habit)
         d["rank"] = rank
         d["opponent_games_here"] = o_total
@@ -562,19 +699,21 @@ def _key_positions(
 
     for bg in battlegrounds[:2]:
         picks.append({
-            "fen":   bg["fen"],
-            "label": f"Battleground: player {bg['player_win_rate']:.0%} vs opp {bg['opponent_win_rate']:.0%}",
-            "type":  "battleground",
-            "move_san": bg.get("player_top_move_san", ""),
-            "move_orig": "",
-            "move_dest": "",
+            "fen":       bg["fen"],
+            "fen_after": bg.get("fen_after", ""),
+            "label":     f"Battleground: player {bg['player_win_rate']:.0%} vs opp {bg['opponent_win_rate']:.0%}",
+            "type":      "battleground",
+            "move_san":  bg.get("player_top_move_san", ""),
+            "move_orig": bg.get("player_top_move_orig", ""),
+            "move_dest": bg.get("player_top_move_dest", ""),
         })
 
     for w in opponent_weaknesses[:2]:
         picks.append({
-            "fen":      w["fen"],
-            "label":    f"Opponent weakness: {w['player_move_san']} (gap {w['eval_gap_cp']:+.0f}cp)",
-            "type":     "weakness",
+            "fen":       w["fen"],
+            "fen_after": w.get("fen_after", ""),
+            "label":     f"Opponent weakness: {w['player_move_san']} (gap {w['eval_gap_cp']:+.0f}cp)",
+            "type":      "weakness",
             "move_san":  w.get("player_move_san", ""),
             "move_orig": w.get("player_move_orig", ""),
             "move_dest": w.get("player_move_dest", ""),
@@ -582,9 +721,10 @@ def _key_positions(
 
     for g in prep_gaps[:1]:
         picks.append({
-            "fen":      g["fen"],
-            "label":    f"Prep gap: your {g['player_move_san']} (gap {g['eval_gap_cp']:+.0f}cp)",
-            "type":     "gap",
+            "fen":       g["fen"],
+            "fen_after": g.get("fen_after", ""),
+            "label":     f"Prep gap: your {g['player_move_san']} (gap {g['eval_gap_cp']:+.0f}cp)",
+            "type":      "gap",
             "move_san":  g.get("player_move_san", ""),
             "move_orig": g.get("player_move_orig", ""),
             "move_dest": g.get("player_move_dest", ""),
@@ -603,6 +743,7 @@ def _call_claude(
     player: str, player_color: str, player_platform: str,
     opponent: str, opponent_color: str, opponent_platform: str,
     player_style: dict, opponent_style: dict,
+    player_phase: dict, opponent_phase: dict,
     battlegrounds: list[dict],
     opponent_weaknesses: list[dict],
     prep_gaps: list[dict],
@@ -618,15 +759,16 @@ def _call_claude(
         player=player, player_color=player_color, player_platform=player_platform,
         opponent=opponent, opponent_color=opponent_color, opponent_platform=opponent_platform,
         player_style=player_style, opponent_style=opponent_style,
+        player_phase=player_phase, opponent_phase=opponent_phase,
         battlegrounds=battlegrounds,
         opponent_weaknesses=opponent_weaknesses,
         prep_gaps=prep_gaps,
     )
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client  = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
         model="claude-opus-4-6",
-        max_tokens=1024,
+        max_tokens=1500,
         messages=[{"role": "user", "content": prompt}],
     )
     return message.content[0].text
@@ -636,63 +778,120 @@ def _build_prompt(
     player: str, player_color: str, player_platform: str,
     opponent: str, opponent_color: str, opponent_platform: str,
     player_style: dict, opponent_style: dict,
+    player_phase: dict, opponent_phase: dict,
     battlegrounds: list[dict],
     opponent_weaknesses: list[dict],
     prep_gaps: list[dict],
 ) -> str:
+    def pct(v: float) -> str:
+        return f"{v * 100:.0f}%"
+
     lines = [
-        f"You are a grandmaster chess coach. Your job is to write a concise strategic "
-        f"preparation brief for {player} (playing {player_color} on {player_platform}) "
-        f"preparing to face {opponent} (playing {opponent_color} on {opponent_platform}).",
+        f"You are a grandmaster chess coach. Write a strategic preparation brief for "
+        f"**{player}** (playing {player_color} on {player_platform}) "
+        f"preparing to face **{opponent}** (playing {opponent_color} on {opponent_platform}).",
         "",
-        "## Player Style",
-        f"- {player_style['total_positions']} opening positions indexed",
-        f"- Average win rate: {player_style['avg_win_rate']:.1%}",
-        f"- Aggression: {player_style['aggression_score']:.1%}  "
-        f"Solidness: {player_style['solidness_score']:.1%}  "
-        f"Diversity: {player_style['opening_diversity']:.1%}",
+        "---",
         "",
-        "## Opponent Style",
-        f"- {opponent_style['total_positions']} opening positions indexed",
-        f"- Average win rate: {opponent_style['avg_win_rate']:.1%}",
-        f"- Aggression: {opponent_style['aggression_score']:.1%}  "
-        f"Solidness: {opponent_style['solidness_score']:.1%}  "
-        f"Diversity: {opponent_style['opening_diversity']:.1%}",
-        "",
-        "## Opening Battlegrounds (top 5 — positions where both players have data)",
+        f"## {player} — Opening Profile ({player_color})",
+        f"- {player_style['total_positions']} positions cached",
+        f"- Average win rate: {pct(player_style['avg_win_rate'])}",
+        f"- Draw rate: {pct(player_style['draw_rate'])}  |  Decisive rate: {pct(player_style['decisive_rate'])}",
+        f"- Solidity: {pct(player_style['solidness_score'])}  |  Opening diversity: {pct(player_style['opening_diversity'])}",
     ]
+
+    plr_openings = player_style.get("top_openings", [])
+    if plr_openings:
+        lines.append("- Top opening lines:")
+        for o in plr_openings[:6]:
+            lines.append(
+                f"    • {o['move_sequence']}  "
+                f"({o['games']}g, {pct(o['win_rate'])} WR"
+                + (f", next: {o['top_move_san']}" if o.get("top_move_san") else "")
+                + ")"
+            )
+
+    if player_phase.get("total_games", 0) > 0:
+        by_speed = player_phase.get("avg_length_by_speed", {})
+        len_str = ", ".join(f"{s}: {v}m" for s, v in by_speed.items()) if by_speed else "n/a"
+        lines += [
+            f"- Game phases ({player_phase['total_games']} games analysed):",
+            f"    • Avg game length by time control: {len_str}",
+            f"    • Endgame reach rate: {pct(player_phase['endgame_reach_rate'])}",
+            f"    • Endgame conversion (of decisive endgames, player wins): {pct(player_phase['endgame_conversion_rate'])}",
+            f"    • Draw rate in middlegame endings: {pct(player_phase['draw_rate_middlegame'])}",
+            f"    • Draw rate in endgame endings: {pct(player_phase['draw_rate_endgame'])}",
+        ]
+
+    lines += [
+        "",
+        f"## {opponent} — Opening Profile ({opponent_color})",
+        f"- {opponent_style['total_positions']} positions cached",
+        f"- Average win rate: {pct(opponent_style['avg_win_rate'])}",
+        f"- Draw rate: {pct(opponent_style['draw_rate'])}  |  Decisive rate: {pct(opponent_style['decisive_rate'])}",
+        f"- Solidity: {pct(opponent_style['solidness_score'])}  |  Opening diversity: {pct(opponent_style['opening_diversity'])}",
+    ]
+
+    opp_openings = opponent_style.get("top_openings", [])
+    if opp_openings:
+        lines.append("- Top opening lines:")
+        for o in opp_openings[:6]:
+            lines.append(
+                f"    • {o['move_sequence']}  "
+                f"({o['games']}g, {pct(o['win_rate'])} WR"
+                + (f", next: {o['top_move_san']}" if o.get("top_move_san") else "")
+                + ")"
+            )
+
+    if opponent_phase.get("total_games", 0) > 0:
+        by_speed = opponent_phase.get("avg_length_by_speed", {})
+        len_str = ", ".join(f"{s}: {v}m" for s, v in by_speed.items()) if by_speed else "n/a"
+        lines += [
+            f"- Game phases ({opponent_phase['total_games']} games analysed):",
+            f"    • Avg game length by time control: {len_str}",
+            f"    • Endgame reach rate: {pct(opponent_phase['endgame_reach_rate'])}",
+            f"    • Endgame conversion: {pct(opponent_phase['endgame_conversion_rate'])}",
+            f"    • Draw rate in middlegame endings: {pct(opponent_phase['draw_rate_middlegame'])}",
+            f"    • Draw rate in endgame endings: {pct(opponent_phase['draw_rate_endgame'])}",
+        ]
+
+    lines += ["", "## Opening Battlegrounds (positions where both players have data)"]
     for bg in battlegrounds[:5]:
         lines.append(
-            f"  • Player {bg['player_games']}g @ {bg['player_win_rate']:.0%} WR, "
-            f"Opp {bg['opponent_games']}g @ {bg['opponent_win_rate']:.0%} WR — "
-            f"advantage: {bg['advantage']}  "
-            f"(player plays {bg['player_top_move_san']}, opp responds {bg['opponent_top_response_san']})"
+            f"  • {player} {bg['player_games']}g @ {pct(bg['player_win_rate'])} WR, "
+            f"{opponent} {bg['opponent_games']}g @ {pct(bg['opponent_win_rate'])} WR — "
+            f"advantage: **{bg['advantage']}**  "
+            f"({player} plays {bg['player_top_move_san']}, {opponent} responds {bg['opponent_top_response_san']})"
         )
 
     lines += ["", "## Opponent Weaknesses Reachable From Player's Repertoire (top 5)"]
     for w in opponent_weaknesses[:5]:
         lines.append(
-            f"  • Opponent plays {w['player_move_san']} in {w['total_games']} games "
+            f"  • {opponent} plays {w['player_move_san']} in {w['total_games']} games "
             f"(best: {w['best_move_san']}, gap: {w['eval_gap_cp']:+.0f}cp, score: {w['score']:.1f})"
         )
 
     lines += ["", "## Player Prep Gaps — positions player plays poorly, opponent knows well (top 5)"]
     for g in prep_gaps[:5]:
         lines.append(
-            f"  • Player plays {g['player_move_san']} in {g['total_games']} games "
+            f"  • {player} plays {g['player_move_san']} in {g['total_games']} games "
             f"(best: {g['best_move_san']}, gap: {g['eval_gap_cp']:+.0f}cp, "
-            f"opponent has {g['opponent_games_here']} games here)"
+            f"{opponent} has {g['opponent_games_here']} games here)"
         )
 
     lines += [
         "",
-        "Write a strategic preparation brief in 3–4 focused paragraphs covering:",
-        "1. Overall style matchup — who is more aggressive, solid, or diverse, and what that means for the game.",
-        "2. How to exploit the opponent's specific weaknesses above (be concrete — name the moves).",
-        "3. Which prep gaps the player must address or avoid before this encounter.",
-        "4. One clear, actionable opening recommendation.",
+        "---",
         "",
-        "Be direct, concrete, and use chess terminology. Reference specific moves and win rates from the data.",
+        "Write your strategic brief in **markdown** using exactly these four headers:",
+        "",
+        "## Opening Approach",
+        "## Middlegame Tendencies",
+        "## Endgame & Conversion",
+        "## Preparation Recommendations",
+        "",
+        "Under each header, use 2–4 bullet points. Be specific: name moves, cite win rates, "
+        "reference the data above. Do not add a preamble or conclusion — just the four sections.",
     ]
 
     return "\n".join(lines)

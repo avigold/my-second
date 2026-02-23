@@ -14,3 +14,36 @@ body {
   width: 100%;
   height: 100%;
 }
+
+/* Markdown rendering inside the strategic brief */
+.md-brief h2 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f59e0b;
+  margin: 16px 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.md-brief ul {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+.md-brief li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+.md-brief p {
+  margin: 0 0 10px;
+  line-height: 1.7;
+}
+.md-brief strong {
+  color: #f3f4f6;
+  font-weight: 600;
+}
+.md-brief code {
+  font-family: monospace;
+  background: #1e2d45;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
