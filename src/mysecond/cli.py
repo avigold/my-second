@@ -25,6 +25,7 @@ from .fetcher import _DEFAULT_DB as _FETCH_DB
 from .fetcher import fetch_player_games, fetch_player_games_chesscom, import_pgn_player, last_fetch_ts
 from .habits import analyze_habits, export_habits_pgn
 from .repertoire_extract import RepertoireStats, export_repertoire_pgn, extract_repertoire
+from .strategise import strategise
 from .score import score_novelty
 from .search import SearchConfig, find_novelties
 
@@ -864,3 +865,81 @@ def extract_repertoire_cmd(
     click.echo(f"  Player moves      : {stats.total_player_moves}")
     click.echo(f"  Max depth         : {stats.max_depth_reached} plies")
     click.echo("\n[repertoire] Done.")
+
+
+# ---------------------------------------------------------------------------
+# strategise
+# ---------------------------------------------------------------------------
+
+
+@main.command("strategise")
+@click.option("--player",           required=True, help="Preparing player username.")
+@click.option("--player-platform",  "player_platform",
+              default="lichess", show_default=True,
+              type=click.Choice(["lichess", "chesscom"]))
+@click.option("--player-color",     "player_color", required=True,
+              type=click.Choice(["white", "black"]),
+              help="Colour the preparing player will have.")
+@click.option("--player-speeds",    "player_speeds",
+              default="blitz,rapid,classical", show_default=True)
+@click.option("--opponent",         required=True, help="Opponent username.")
+@click.option("--opponent-platform","opponent_platform",
+              default="lichess", show_default=True,
+              type=click.Choice(["lichess", "chesscom"]))
+@click.option("--opponent-speeds",  "opponent_speeds",
+              default="blitz,rapid,classical", show_default=True)
+@click.option("--min-games",        "min_games",      default=5,   show_default=True)
+@click.option("--max-positions",    "max_positions",  default=30,  show_default=True)
+@click.option("--min-eval-gap",     "min_eval_gap",   default=25,  show_default=True)
+@click.option("--depth",            default=18, show_default=True)
+@click.option("--out",              "out_path",        default="strategise.json", show_default=True)
+@click.option("--api-key",          "anthropic_api_key",
+              default=None, envvar="ANTHROPIC_API_KEY",
+              help="Anthropic API key for the AI strategic brief.")
+@click.option("--db",               "db_path",
+              default=str(_FETCH_DB), show_default=True)
+def strategise_cmd(
+    player, player_platform, player_color, player_speeds,
+    opponent, opponent_platform, opponent_speeds,
+    min_games, max_positions, min_eval_gap, depth,
+    out_path, anthropic_api_key, db_path,
+):
+    """Generate a strategic preparation brief for PLAYER vs OPPONENT.
+
+    \b
+    Both players' games are fetched automatically if not cached.
+    Stockfish is required for habit analysis.
+    Pass --api-key (or set ANTHROPIC_API_KEY) to add an AI strategic brief.
+
+    \b
+    Example:
+      mysecond strategise --player Hikaru --player-platform chesscom \\
+          --player-color white --opponent MagnusCarlsen \\
+          --opponent-platform lichess --out brief.json --api-key sk-ant-…
+    """
+    try:
+        engine_path = find_stockfish()
+        click.echo(f"[strategise] Engine: {engine_path}")
+    except FileNotFoundError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    with Cache(Path(db_path)) as cache:
+        strategise(
+            player=player,
+            player_platform=player_platform,
+            player_color=player_color,
+            player_speeds=player_speeds,
+            opponent=opponent,
+            opponent_platform=opponent_platform,
+            opponent_speeds=opponent_speeds,
+            cache=cache,
+            engine_path=engine_path,
+            out_path=Path(out_path),
+            min_games=min_games,
+            max_positions=max_positions,
+            min_eval_gap=min_eval_gap,
+            depth=depth,
+            anthropic_api_key=anthropic_api_key,
+            verbose=True,
+        )

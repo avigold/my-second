@@ -157,6 +157,34 @@ def build_habits_argv(params: dict, out_path: str) -> list[str]:
     return cmd
 
 
+def build_strategise_argv(params: dict, out_path: str) -> list[str]:
+    """Build the argv list for ``mysecond strategise``."""
+    cmd = [_mysecond_bin(), "strategise"]
+    cmd += ["--player",       params["player"]]
+    cmd += ["--player-color", params["player_color"]]
+    cmd += ["--opponent",     params["opponent"]]
+    cmd += ["--out",          out_path]
+    if params.get("player_platform"):
+        cmd += ["--player-platform",  params["player_platform"]]
+    if params.get("player_speeds"):
+        cmd += ["--player-speeds",    params["player_speeds"]]
+    if params.get("opponent_platform"):
+        cmd += ["--opponent-platform", params["opponent_platform"]]
+    if params.get("opponent_speeds"):
+        cmd += ["--opponent-speeds",  params["opponent_speeds"]]
+    if params.get("min_games"):
+        cmd += ["--min-games",        str(params["min_games"])]
+    if params.get("max_positions"):
+        cmd += ["--max-positions",    str(params["max_positions"])]
+    if params.get("min_eval_gap"):
+        cmd += ["--min-eval-gap",     str(params["min_eval_gap"])]
+    if params.get("depth"):
+        cmd += ["--depth",            str(params["depth"])]
+    if params.get("api_key"):
+        cmd += ["--api-key",          params["api_key"]]
+    return cmd
+
+
 def build_import_argv(params: dict, pgn_path: str) -> list[str]:
     """Build the argv list for ``mysecond import-pgn-player``."""
     cmd = [_mysecond_bin(), "import-pgn-player"]

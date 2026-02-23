@@ -15,6 +15,9 @@
         {% set _au = job.params.opponent | default('') %}
         {% set _ap = job.params.opponent_platform | default('lichess') %}
       {% endif %}
+    {% elif job.command == 'strategise' %}
+      {% set _au = job.params.player | default('') %}
+      {% set _ap = job.params.player_platform | default('lichess') %}
     {% else %}
       {% set _au = job.params.username | default('') %}
       {% set _ap = job.params.platform | default('lichess') %}
@@ -40,6 +43,7 @@
           {% elif job.command == "habits" %}Analyse Habits
           {% elif job.command == "repertoire" %}Extract Repertoire
           {% elif job.command == "import" %}Import PGN
+          {% elif job.command == "strategise" %}Strategise
           {% else %}{{ job.command }}{% endif %}
         </h1>
         <span id="status-badge"
@@ -71,6 +75,13 @@
        class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
        id="browse-btn">
       Browse Repertoire
+    </a>
+    {% endif %}
+    {% if job.command == 'strategise' %}
+    <a href="/jobs/{{ job.id }}/strategise-report"
+       class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
+       id="browse-btn">
+      View Report
     </a>
     {% endif %}
     {% if job.command == 'habits' %}

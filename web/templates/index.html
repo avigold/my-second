@@ -27,6 +27,7 @@
     <button class="filter-chip"        data-filter="command" data-value="habits"      onclick="setFilter('command','habits')">Habits</button>
     <button class="filter-chip"        data-filter="command" data-value="repertoire"  onclick="setFilter('command','repertoire')">Repertoire</button>
     <button class="filter-chip"        data-filter="command" data-value="import"      onclick="setFilter('command','import')">Import</button>
+    <button class="filter-chip"        data-filter="command" data-value="strategise"  onclick="setFilter('command','strategise')">Strategise</button>
   </div>
 
   <!-- Status chips -->
@@ -137,6 +138,8 @@ function renderJobList(jobs) {
       ? `${j.params.username} / ${j.params.color} — habit analysis (${j.params.platform || 'lichess'})`
       : j.command === 'repertoire'
       ? `${j.params.username} / ${j.params.color} — repertoire (${j.params.platform || 'lichess'})`
+      : j.command === 'strategise'
+      ? `${j.params.player} (${j.params.player_color || '?'}) vs ${j.params.opponent}`
       : `${j.params.side} | player=${j.params.player || '—'} opp=${j.params.opponent || '—'}`;
     const download = j.status === 'done' && j.out_path
       ? `<a href="/api/jobs/${j.id}/download" class="text-amber-400 text-xs hover:underline ml-2">↓ PGN</a>`

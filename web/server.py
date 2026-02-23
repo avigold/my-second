@@ -22,7 +22,7 @@ from habits_parser import parse_habits
 from jobs import Job, JobRegistry
 from pgn_parser import parse_novelties
 from repertoire_parser import parse_repertoire
-from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, launch_job
+from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, build_strategise_argv, launch_job
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -415,6 +415,27 @@ def habits_browser_page(job_id: str):
     )
 
 
+@app.get("/strategise")
+def strategise_page():
+    return render_template("strategise.html")
+
+
+@app.get("/jobs/<job_id>/strategise-report")
+def strategise_report_page(job_id: str):
+    job = registry.get(job_id)
+    if job is None:
+        return "Job not found", 404
+    side = job.params.get("player_color", "white")
+    css_tag, js_tag = _vite_tags()
+    return render_template(
+        "strategise_report.html",
+        job_id=job_id,
+        side=side,
+        css_tag=css_tag,
+        js_tag=js_tag,
+    )
+
+
 @app.get("/import-pgn")
 def import_pgn_page():
     return render_template("import.html")
@@ -443,6 +464,33 @@ def api_habits_data(job_id: str):
     if not job.out_path or not Path(job.out_path).exists():
         return jsonify([])
     return jsonify(parse_habits(job.out_path))
+
+
+@app.post("/api/strategise")
+def api_strategise():
+    params = request.get_json(force=True)
+    if not params.get("player") or not params.get("player_color") or not params.get("opponent"):
+        return jsonify({"error": "player, player_color, and opponent are required"}), 400
+
+    job = registry.create("strategise", params)
+    out_path = str(OUTPUT_DIR / f"{job.id}.json")
+    job.out_path = out_path
+
+    argv = build_strategise_argv(params, out_path)
+    launch_job(job, argv, REPO_ROOT, registry)
+    return jsonify({"job_id": job.id})
+
+
+@app.get("/api/jobs/<job_id>/strategise")
+def api_strategise_data(job_id: str):
+    job = registry.get(job_id)
+    if job is None:
+        return jsonify({"error": "not found"}), 404
+    if not job.out_path or not Path(job.out_path).exists():
+        return jsonify({})
+    import json as _json
+    with open(job.out_path, encoding="utf-8") as f:
+        return jsonify(_json.load(f))
 
 
 @app.post("/api/import-pgn")
