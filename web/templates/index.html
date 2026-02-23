@@ -2,7 +2,7 @@
 {% block title %}mysecond – Job History{% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between mb-6">
+<div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-bold">Job History</h1>
   <div class="flex gap-3">
     <a href="/fetch" class="btn-secondary">Fetch Games</a>
@@ -12,20 +12,116 @@
   </div>
 </div>
 
+<!-- Filter bar -->
+<div class="flex flex-wrap items-center gap-2 mb-1">
+  <input type="text" id="search-query"
+         class="form-input" style="width:190px;flex-shrink:0;"
+         placeholder="Filter by player…"
+         oninput="applyFilter()">
+
+  <!-- Command chips -->
+  <div class="flex gap-1 flex-wrap">
+    <button class="filter-chip active" data-filter="command" data-value=""            onclick="setFilter('command','')">All</button>
+    <button class="filter-chip"        data-filter="command" data-value="fetch"       onclick="setFilter('command','fetch')">Fetch</button>
+    <button class="filter-chip"        data-filter="command" data-value="search"      onclick="setFilter('command','search')">Novelties</button>
+    <button class="filter-chip"        data-filter="command" data-value="habits"      onclick="setFilter('command','habits')">Habits</button>
+    <button class="filter-chip"        data-filter="command" data-value="repertoire"  onclick="setFilter('command','repertoire')">Repertoire</button>
+    <button class="filter-chip"        data-filter="command" data-value="import"      onclick="setFilter('command','import')">Import</button>
+  </div>
+
+  <!-- Status chips -->
+  <div class="flex gap-1 flex-wrap ml-auto">
+    <button class="filter-chip active" data-filter="status" data-value=""         onclick="setFilter('status','')">Any status</button>
+    <button class="filter-chip"        data-filter="status" data-value="done"     onclick="setFilter('status','done')">Done</button>
+    <button class="filter-chip"        data-filter="status" data-value="running"  onclick="setFilter('status','running')">Running</button>
+    <button class="filter-chip"        data-filter="status" data-value="failed"   onclick="setFilter('status','failed')">Failed</button>
+  </div>
+</div>
+
+<p id="filter-count" class="text-xs text-gray-600 mb-3" style="display:none;"></p>
+
 <div id="job-list" class="space-y-2">
   <p class="text-gray-500 text-sm">Loading…</p>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<style>
+  .filter-chip {
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid #374151;
+    background: #1f2937;
+    color: #6b7280;
+    cursor: pointer;
+    transition: color 0.1s, border-color 0.1s, background 0.1s;
+    white-space: nowrap;
+  }
+  .filter-chip:hover { color: #d1d5db; border-color: #4b5563; }
+  .filter-chip.active {
+    background: rgba(245,158,11,0.12);
+    border-color: rgba(245,158,11,0.45);
+    color: #fbbf24;
+  }
+</style>
 <script>
-async function loadJobs() {
-  const res = await fetch('/api/jobs');
-  const jobs = await res.json();
+let allJobs = [];
+const filter = { command: '', status: '', query: '' };
+
+function setFilter(key, value) {
+  filter[key] = value;
+  document.querySelectorAll(`.filter-chip[data-filter="${key}"]`).forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.value === value);
+  });
+  applyFilter();
+}
+
+function applyFilter() {
+  filter.query = document.getElementById('search-query').value.trim().toLowerCase();
+
+  const filtered = allJobs.filter(j => {
+    if (filter.command && j.command !== filter.command) return false;
+    if (filter.status  && j.status  !== filter.status)  return false;
+    if (filter.query) {
+      const haystack = [
+        j.params.username,
+        j.params.player,
+        j.params.opponent,
+        j.params.platform,
+        j.params.player_platform,
+        j.params.opponent_platform,
+        j.params.color,
+        j.params.filename,
+        j.command,
+        j.id,
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!haystack.includes(filter.query)) return false;
+    }
+    return true;
+  });
+
+  renderJobList(filtered);
+
+  const countEl = document.getElementById('filter-count');
+  const isFiltered = filter.command || filter.status || filter.query;
+  if (isFiltered && allJobs.length > 0) {
+    countEl.textContent = `Showing ${filtered.length} of ${allJobs.length} jobs`;
+    countEl.style.display = 'block';
+  } else {
+    countEl.style.display = 'none';
+  }
+}
+
+function renderJobList(jobs) {
   const el = document.getElementById('job-list');
 
   if (jobs.length === 0) {
-    el.innerHTML = '<p class="text-gray-500 text-sm">No jobs yet. Run a fetch or search to get started.</p>';
+    const msg = allJobs.length === 0
+      ? 'No jobs yet. Run a fetch or search to get started.'
+      : 'No jobs match your filter.';
+    el.innerHTML = `<p class="text-gray-500 text-sm">${msg}</p>`;
     return;
   }
 
@@ -46,7 +142,6 @@ async function loadJobs() {
       ? `<a href="/api/jobs/${j.id}/download" class="text-amber-400 text-xs hover:underline ml-2">↓ PGN</a>`
       : '';
 
-    // Determine white player for avatar (search jobs use player/opponent fields)
     let avatarUser, avatarPlatform;
     if (j.command === 'search') {
       if (j.params.side === 'white') {
@@ -93,6 +188,12 @@ async function loadJobs() {
   fetchAvatars();
 }
 
+async function loadJobs() {
+  const res = await fetch('/api/jobs');
+  allJobs = await res.json();
+  applyFilter();
+}
+
 async function fetchAvatars() {
   const els = document.querySelectorAll('.job-avatar[data-platform="chesscom"]');
   const usernames = [...new Set([...els].map(el => el.dataset.username))];
@@ -117,7 +218,8 @@ async function deleteJob(jobId, btn) {
   if (!confirm('Delete this job?')) return;
   btn.disabled = true;
   await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
-  btn.closest('div.bg-gray-900').remove();
+  allJobs = allJobs.filter(j => j.id !== jobId);
+  applyFilter();
 }
 
 loadJobs();
