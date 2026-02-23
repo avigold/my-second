@@ -417,8 +417,7 @@ def habits_browser_page(job_id: str):
 
 @app.get("/strategise")
 def strategise_page():
-    return render_template("strategise.html",
-                           anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    return render_template("strategise.html")
 
 
 @app.get("/jobs/<job_id>/strategise-report")
@@ -472,6 +471,10 @@ def api_strategise():
     params = request.get_json(force=True)
     if not params.get("player") or not params.get("player_color") or not params.get("opponent"):
         return jsonify({"error": "player, player_color, and opponent are required"}), 400
+
+    # Inject API key from environment if not supplied by the client
+    if not params.get("api_key"):
+        params["api_key"] = os.environ.get("ANTHROPIC_API_KEY") or None
 
     job = registry.create("strategise", params)
     out_path = str(OUTPUT_DIR / f"{job.id}.json")

@@ -83,12 +83,6 @@
         <label class="form-label">Engine Depth</label>
         <input id="depth" name="depth" type="number" class="form-input" value="18">
       </div>
-      <div class="col-span-2">
-        <label class="form-label">Anthropic API Key (optional — for AI brief)</label>
-        <input id="api_key" name="api_key" type="password" class="form-input"
-               value="{{ anthropic_api_key }}"
-               placeholder="sk-ant-… or set ANTHROPIC_API_KEY env var">
-      </div>
     </div>
   </details>
 
@@ -120,7 +114,6 @@ document.getElementById('strategise-form').addEventListener('submit', async (e) 
     min_eval_gap:      parseInt(document.getElementById('min_eval_gap').value) || 25,
     max_positions:     parseInt(document.getElementById('max_positions').value) || 30,
     depth:             parseInt(document.getElementById('depth').value) || 18,
-    api_key:           document.getElementById('api_key').value.trim() || null,
   };
 
   try {
