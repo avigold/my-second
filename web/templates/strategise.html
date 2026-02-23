@@ -86,10 +86,8 @@
       <div class="col-span-2">
         <label class="form-label">Anthropic API Key (optional — for AI brief)</label>
         <input id="api_key" name="api_key" type="password" class="form-input"
+               value="{{ anthropic_api_key }}"
                placeholder="sk-ant-… or set ANTHROPIC_API_KEY env var">
-        <p class="text-xs text-gray-600 mt-1">
-          Leave blank to run analysis without the AI strategic brief.
-        </p>
       </div>
     </div>
   </details>

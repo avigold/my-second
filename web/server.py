@@ -417,7 +417,8 @@ def habits_browser_page(job_id: str):
 
 @app.get("/strategise")
 def strategise_page():
-    return render_template("strategise.html")
+    return render_template("strategise.html",
+                           anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
 
 @app.get("/jobs/<job_id>/strategise-report")
