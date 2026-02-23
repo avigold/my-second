@@ -6,42 +6,40 @@
 {% block content %}
 
 <!-- ─── Hero ─────────────────────────────────────────────────────── -->
-<section class="relative rounded-2xl overflow-hidden border border-gray-800 mb-10"
-         style="background:linear-gradient(150deg,#08101f 0%,#0c1525 55%,#111827 100%);">
-  <!-- Amber glow, upper-left -->
+<section class="relative rounded-2xl overflow-hidden border border-gray-800 mb-10 px-12 py-20"
+         style="background:#070d1a;">
+  <!-- Dot-grid depth layer -->
+  <div class="absolute inset-0 pointer-events-none"
+       style="background-image:radial-gradient(rgba(255,255,255,0.045) 1px,transparent 1px);
+              background-size:28px 28px;"></div>
+  <!-- Amber radial glow, upper-left -->
   <div class="absolute pointer-events-none"
-       style="top:-100px;left:-80px;width:560px;height:460px;
-              background:radial-gradient(ellipse,rgba(245,158,11,0.10) 0%,transparent 60%);
+       style="top:-140px;left:-100px;width:680px;height:560px;
+              background:radial-gradient(ellipse,rgba(245,158,11,0.13) 0%,transparent 58%);
               border-radius:50%;"></div>
-  <!-- Blue accent, lower-centre -->
+  <!-- Cool tint, lower-right -->
   <div class="absolute pointer-events-none"
-       style="bottom:-80px;right:260px;width:420px;height:340px;
-              background:radial-gradient(ellipse,rgba(96,165,250,0.05) 0%,transparent 60%);
+       style="bottom:-80px;right:-60px;width:500px;height:400px;
+              background:radial-gradient(ellipse,rgba(59,130,246,0.055) 0%,transparent 60%);
               border-radius:50%;"></div>
 
-  <div class="relative z-10 flex items-center gap-10 px-10 py-14">
-
-    <!-- Text + CTAs -->
-    <div class="flex-1 min-w-0">
-      <h1 class="text-4xl font-bold tracking-tight mb-3">Your Chess Second</h1>
-      <p class="text-gray-400 text-lg mb-8 max-w-lg leading-relaxed">
-        Uncover novelties. Break bad habits. Know your repertoire inside out.
-      </p>
-      <div class="flex flex-wrap gap-3">
-        <a href="/habits"     class="btn-primary">Analyse Habits</a>
-        <a href="/search"     class="btn-secondary">Search Novelties</a>
-        <a href="/repertoire" class="btn-secondary">Extract Repertoire</a>
-        <a href="/fetch"      class="btn-secondary">Fetch Games</a>
-      </div>
+  <div class="relative z-10 max-w-2xl">
+    <p class="text-amber-400 text-xs font-mono uppercase tracking-widest mb-5 select-none">Chess Analysis Tool</p>
+    <!-- Amber accent bar -->
+    <div style="width:36px;height:3px;background:#f59e0b;border-radius:2px;margin-bottom:22px;"></div>
+    <h1 class="text-5xl font-bold tracking-tight leading-tight mb-5">
+      Your Chess<br>Second
+    </h1>
+    <p class="text-gray-400 text-lg mb-10 leading-relaxed max-w-xl">
+      Uncover novelties, break recurring opening mistakes,<br>
+      and know your repertoire inside out.
+    </p>
+    <div class="flex flex-wrap gap-3">
+      <a href="/habits"     class="btn-primary">Analyse Habits</a>
+      <a href="/search"     class="btn-secondary">Search Novelties</a>
+      <a href="/repertoire" class="btn-secondary">Extract Repertoire</a>
+      <a href="/fetch"      class="btn-secondary">Fetch Games</a>
     </div>
-
-    <!-- Decorative chess board (rendered by JS) -->
-    <div class="shrink-0 hidden lg:block"
-         style="filter:drop-shadow(0 12px 40px rgba(0,0,0,0.85)) drop-shadow(0 0 40px rgba(245,158,11,0.10));">
-      <div id="hero-board" style="border-radius:6px;overflow:hidden;border:1px solid rgba(245,158,11,0.15);"></div>
-      <p class="text-center text-gray-700 text-xs mt-2 font-mono select-none">Ruy López — 9.h3</p>
-    </div>
-
   </div>
 </section>
 
@@ -191,17 +189,6 @@ function renderMiniBoard(fen, orig, dest, size = 128) {
        + `border-radius:4px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,0.5);">`
        + cellsHtml + `</div>`;
 }
-
-// ─── Hero board ────────────────────────────────────────────────────────────
-// Ruy López main line after 9.h3 — h-pawn just advanced from h2→h3
-(function () {
-  const el = document.getElementById('hero-board');
-  if (!el) return;
-  el.innerHTML = renderMiniBoard(
-    'r1bq1rk1/2p1bppp/p1np1n2/1p2p3/4P3/1BP2N1P/PP1P1PP1/RNBQR1K1 w - - 0 10',
-    'h2', 'h3', 320
-  );
-})();
 
 // ─── Eval bar ──────────────────────────────────────────────────────────────
 function evalBar(gapCp) {
