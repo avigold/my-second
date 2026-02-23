@@ -47,6 +47,10 @@ export default function HabitsPracticeBoard({ habit, orientation, onNext, onSkip
   const [lastMove,     setLastMove]     = useState(null)
   const [showAnswer,   setShowAnswer]   = useState(false)
   const [revealed,     setRevealed]     = useState(false)
+  // Incrementing this key forces Chessground to fully remount after a wrong
+  // move, which is the only reliable way to restore piece positions and
+  // re-enable dragging after chessground has animated a move internally.
+  const [resetKey,     setResetKey]     = useState(0)
   const autoAdvanceRef = useRef(null)
 
   // Reset state when habit changes
@@ -56,6 +60,7 @@ export default function HabitsPracticeBoard({ habit, orientation, onNext, onSkip
     setLastMove(null)
     setShowAnswer(false)
     setRevealed(false)
+    setResetKey(0)
     if (autoAdvanceRef.current) {
       clearTimeout(autoAdvanceRef.current)
       autoAdvanceRef.current = null
@@ -83,12 +88,15 @@ export default function HabitsPracticeBoard({ habit, orientation, onNext, onSkip
       // Auto-advance after 1.8 s
       autoAdvanceRef.current = setTimeout(() => onNext('correct'), 1800)
     } else if (isHabit) {
+      // Show the piece moved briefly so the user sees what happened
+      setBoardFen(newFen)
+      setLastMove([orig, dest])
       setFeedback('habit')
-      // Reset board after a short pause
       setTimeout(() => {
         setBoardFen(habit.fen)
         setLastMove(null)
         setFeedback(null)
+        setResetKey(k => k + 1)  // remount Chessground with fresh state
       }, 1400)
     } else {
       setBoardFen(newFen)
@@ -98,6 +106,7 @@ export default function HabitsPracticeBoard({ habit, orientation, onNext, onSkip
         setBoardFen(habit.fen)
         setLastMove(null)
         setFeedback(null)
+        setResetKey(k => k + 1)  // remount Chessground with fresh state
       }, 1400)
     }
   }
@@ -150,7 +159,7 @@ export default function HabitsPracticeBoard({ habit, orientation, onNext, onSkip
       {/* Left: board */}
       <div style={{ flexShrink: 0 }}>
         <div style={{ width: BOARD_SIZE, height: BOARD_SIZE, position: 'relative' }}>
-          <Chessground width={BOARD_SIZE} height={BOARD_SIZE} config={config} />
+          <Chessground key={resetKey} width={BOARD_SIZE} height={BOARD_SIZE} config={config} />
           {/* Overlay feedback flash */}
           {feedback && feedback !== 'correct' && (
             <div style={{
