@@ -170,7 +170,7 @@ function BriefTab({ data }) {
                            letterSpacing: '0.06em' }}>Strategic Brief</span>
             <span style={{ fontSize: 10, color: C.blueDim, background: '#1e3a5f',
                            border: `1px solid ${C.blueDim}40`, borderRadius: 99,
-                           padding: '1px 7px' }}>AI · Claude</span>
+                           padding: '1px 7px' }}>My Second</span>
           </div>
           <div style={{ color: C.textPri, fontSize: 14, lineHeight: 1.7 }}
                className="md-brief">
