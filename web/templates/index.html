@@ -45,8 +45,19 @@ async function loadJobs() {
     const download = j.status === 'done' && j.out_path
       ? `<a href="/api/jobs/${j.id}/download" class="text-amber-400 text-xs hover:underline ml-2">↓ PGN</a>`
       : '';
+
+    const avatarContent = j.params.username ? j.params.username[0].toUpperCase() : '';
+    const avatar = j.params.username
+      ? `<div class="job-avatar" data-username="${j.params.username}" data-platform="${j.params.platform || 'lichess'}"
+              style="width:36px;height:36px;border-radius:50%;background:#1f2937;flex-shrink:0;
+                     display:flex;align-items:center;justify-content:center;
+                     font-size:14px;font-weight:700;color:#9ca3af;
+                     overflow:hidden;border:1px solid #374151;">${avatarContent}</div>`
+      : `<div style="width:36px;height:36px;flex-shrink:0;"></div>`;
+
     return `
-      <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 flex items-center gap-4">
+      <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 flex items-center gap-3">
+        ${avatar}
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2">
             <span class="font-mono text-xs text-gray-500">${j.id.slice(0,8)}</span>
@@ -65,6 +76,28 @@ async function loadJobs() {
         </div>
       </div>`;
   }).join('');
+
+  fetchAvatars();
+}
+
+async function fetchAvatars() {
+  const els = document.querySelectorAll('.job-avatar[data-platform="chesscom"]');
+  const usernames = [...new Set([...els].map(el => el.dataset.username))];
+  for (const username of usernames) {
+    try {
+      const res = await fetch(`https://api.chess.com/pub/player/${username}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!data.avatar) continue;
+      document.querySelectorAll(`.job-avatar[data-username="${username}"]`).forEach(el => {
+        el.textContent = '';
+        el.style.background = 'transparent';
+        el.style.padding = '0';
+        el.innerHTML = `<img src="${data.avatar}" alt="${username}"
+          style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;">`;
+      });
+    } catch {}
+  }
 }
 
 async function deleteJob(jobId, btn) {
