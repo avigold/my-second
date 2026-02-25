@@ -48,9 +48,13 @@ UPLOADS_DIR = DATA_DIR / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.secret_key = os.urandom(24)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(24)
 
-registry = JobRegistry(DATA_DIR / "jobs.sqlite")
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://mysecond:mysecond@localhost:5433/mysecond",
+)
+registry = JobRegistry(DATABASE_URL)
 
 DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 

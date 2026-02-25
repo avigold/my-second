@@ -1,66 +1,83 @@
-"""Job registry: in-memory store + SQLite persistence for web UI jobs."""
+"""Job registry: in-memory store + PostgreSQL persistence for web UI jobs."""
 
 from __future__ import annotations
 
 import json
 import queue
-import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
+import psycopg2
+import psycopg2.extras
+import psycopg2.pool
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS jobs (
-    id           TEXT PRIMARY KEY,
-    command      TEXT NOT NULL,
-    params_json  TEXT NOT NULL,
-    status       TEXT NOT NULL,
-    started_at   TEXT NOT NULL,
-    finished_at  TEXT,
-    out_path     TEXT,
-    exit_code    INTEGER,
-    log_text     TEXT
+
+_DDL = """
+CREATE TABLE IF NOT EXISTS users (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lichess_id  TEXT UNIQUE,
+    chesscom_id TEXT UNIQUE,
+    username    TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id          UUID PRIMARY KEY,
+    user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+    command     TEXT NOT NULL,
+    params      JSONB NOT NULL,
+    status      TEXT NOT NULL,
+    started_at  TIMESTAMPTZ NOT NULL,
+    finished_at TIMESTAMPTZ,
+    out_path    TEXT,
+    exit_code   INTEGER,
+    log_text    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS jobs_started_at_idx ON jobs (started_at DESC);
+CREATE INDEX IF NOT EXISTS jobs_user_id_idx    ON jobs (user_id);
 """
 
 
 @dataclass
 class Job:
     id: str
-    command: str          # "fetch" or "search"
+    command: str          # "fetch" | "search" | "habits" | "repertoire" | "strategise" | "import"
     params: dict          # form inputs that produced this job
     status: str           # "running" | "done" | "failed" | "cancelled"
     started_at: datetime
     finished_at: datetime | None = None
     out_path: str | None = None
     exit_code: int | None = None
+    user_id: str | None = None
     # Not persisted — live only while the process runs:
     log_lines: list[str] = field(default_factory=list, repr=False)
-    queue: queue.Queue = field(default_factory=queue.Queue, repr=False)
-    process: Any = field(default=None, repr=False)
+    queue: queue.Queue    = field(default_factory=queue.Queue, repr=False)
+    process: Any          = field(default=None, repr=False)
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id,
-            "command": self.command,
-            "params": self.params,
-            "status": self.status,
-            "started_at": self.started_at.isoformat(),
+            "id":          self.id,
+            "command":     self.command,
+            "params":      self.params,
+            "status":      self.status,
+            "started_at":  self.started_at.isoformat(),
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
-            "out_path": self.out_path,
-            "exit_code": self.exit_code,
+            "out_path":    self.out_path,
+            "exit_code":   self.exit_code,
+            "user_id":     self.user_id,
         }
 
 
 class JobRegistry:
-    """Thread-safe in-memory store with SQLite persistence."""
+    """Thread-safe in-memory store with PostgreSQL persistence."""
 
-    def __init__(self, db_path: Path) -> None:
-        self._db_path = db_path
+    def __init__(self, database_url: str) -> None:
+        self._pool = psycopg2.pool.ThreadedConnectionPool(1, 10, database_url)
         self._lock = threading.Lock()
         self._jobs: dict[str, Job] = {}
         self._init_db()
@@ -75,6 +92,7 @@ class JobRegistry:
         command: str,
         params: dict,
         out_path: str | None = None,
+        user_id: str | None = None,
     ) -> Job:
         job = Job(
             id=str(uuid.uuid4()),
@@ -83,6 +101,7 @@ class JobRegistry:
             status="running",
             started_at=datetime.now(tz=timezone.utc),
             out_path=out_path,
+            user_id=user_id,
         )
         with self._lock:
             self._jobs[job.id] = job
@@ -98,14 +117,20 @@ class JobRegistry:
             jobs = list(self._jobs.values())
         return [j.to_dict() for j in sorted(jobs, key=lambda j: j.started_at, reverse=True)]
 
+    def list_for_user(self, user_id: str) -> list[dict]:
+        with self._lock:
+            jobs = [j for j in self._jobs.values() if j.user_id == user_id]
+        return [j.to_dict() for j in sorted(jobs, key=lambda j: j.started_at, reverse=True)]
+
     def delete(self, job_id: str) -> bool:
         """Remove a job from memory and the database. Returns True if found."""
         with self._lock:
             if job_id not in self._jobs:
                 return False
             del self._jobs[job_id]
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+            conn.commit()
         return True
 
     def update_status(
@@ -131,62 +156,82 @@ class JobRegistry:
     # Internals
     # ------------------------------------------------------------------
 
+    @contextmanager
+    def _conn(self):
+        conn = self._pool.getconn()
+        try:
+            yield conn
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            self._pool.putconn(conn)
+
     def _init_db(self) -> None:
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute(_SCHEMA)
-            # Migration: add log_text column for databases created before this feature.
-            try:
-                conn.execute("ALTER TABLE jobs ADD COLUMN log_text TEXT")
-            except sqlite3.OperationalError:
-                pass  # column already exists
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(_DDL)
+            conn.commit()
 
     def _load_existing(self) -> None:
-        """Load historical jobs from DB so they appear on the dashboard."""
-        with sqlite3.connect(self._db_path) as conn:
-            rows = conn.execute(
-                "SELECT id, command, params_json, status, started_at, finished_at, out_path, exit_code, log_text FROM jobs"
-            ).fetchall()
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, command, params, status, started_at, finished_at,
+                       out_path, exit_code, log_text, user_id
+                FROM jobs
+                ORDER BY started_at DESC
+                """
+            )
+            rows = cur.fetchall()
+
         for row in rows:
-            job_id, command, params_json, status, started_at, finished_at, out_path, exit_code, log_text = row
-            # Mark any jobs that were "running" when the server last died as cancelled.
+            job_id, command, params, status, started_at, finished_at, \
+                out_path, exit_code, log_text, user_id = row
+
             if status == "running":
                 status = "cancelled"
+
             job = Job(
-                id=job_id,
+                id=str(job_id),
                 command=command,
-                params=json.loads(params_json),
+                params=params,          # psycopg2 deserialises JSONB → dict automatically
                 status=status,
-                started_at=datetime.fromisoformat(started_at),
-                finished_at=datetime.fromisoformat(finished_at) if finished_at else None,
+                started_at=started_at,
+                finished_at=finished_at,
                 out_path=out_path,
                 exit_code=exit_code,
+                user_id=str(user_id) if user_id else None,
                 log_lines=log_text.splitlines() if log_text else [],
             )
-            self._jobs[job_id] = job
+            self._jobs[job.id] = job
 
     def _persist(self, job: Job) -> None:
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute(
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
                 """
-                INSERT INTO jobs (id, command, params_json, status, started_at, finished_at, out_path, exit_code, log_text)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    status=excluded.status,
-                    finished_at=excluded.finished_at,
-                    out_path=excluded.out_path,
-                    exit_code=excluded.exit_code,
-                    log_text=excluded.log_text
+                INSERT INTO jobs (
+                    id, user_id, command, params, status,
+                    started_at, finished_at, out_path, exit_code, log_text
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    status      = EXCLUDED.status,
+                    finished_at = EXCLUDED.finished_at,
+                    out_path    = EXCLUDED.out_path,
+                    exit_code   = EXCLUDED.exit_code,
+                    log_text    = EXCLUDED.log_text
                 """,
                 (
                     job.id,
+                    job.user_id,
                     job.command,
-                    json.dumps(job.params),
+                    psycopg2.extras.Json(job.params),
                     job.status,
-                    job.started_at.isoformat(),
-                    job.finished_at.isoformat() if job.finished_at else None,
+                    job.started_at,
+                    job.finished_at,
                     job.out_path,
                     job.exit_code,
                     "\n".join(job.log_lines) if job.log_lines else None,
                 ),
             )
+            conn.commit()
