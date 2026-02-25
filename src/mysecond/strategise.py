@@ -30,6 +30,7 @@ import chess
 
 from .cache import Cache
 from .engine import Engine
+from .eval_cache import EvalCache
 from .fetcher import _backend_key, fetch_player_games, fetch_player_games_chesscom
 from .game_phases import analyze_game_phases
 from .habits import HabitInaccuracy, analyze_habits
@@ -60,6 +61,7 @@ def strategise(
     depth: int = 12,
     anthropic_api_key: str | None = None,
     verbose: bool = True,
+    eval_cache: EvalCache | None = None,
 ) -> dict[str, Any]:
     """Run full strategic analysis and write ``out_path`` JSON.
 
@@ -101,6 +103,7 @@ def strategise(
             min_games=min_games, max_positions=max_positions,
             min_eval_gap=min_eval_gap, depth=depth, verbose=verbose,
             engine_threads=_PARALLEL_THREADS,
+            eval_cache=eval_cache,
         )
 
     def _phases(username, color, platform, speeds):

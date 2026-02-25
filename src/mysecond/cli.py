@@ -20,6 +20,7 @@ import click
 
 from .cache import Cache
 from .engine import find_stockfish
+from .eval_cache import EvalCache
 from .export import export_pgn
 from .fetcher import _DEFAULT_DB as _FETCH_DB
 from .fetcher import fetch_player_games, fetch_player_games_chesscom, import_pgn_player, last_fetch_ts
@@ -718,6 +719,7 @@ def analyze_habits_cmd(
     click.echo(f"  Min games: {min_games}  Max positions: {max_positions}  "
                f"Min eval gap: {min_eval_gap}cp  Depth: {depth}")
 
+    eval_cache = EvalCache(Path("data/evals.sqlite"))
     with Cache(db) as cache:
         habits = analyze_habits(
             username=username,
@@ -731,6 +733,7 @@ def analyze_habits_cmd(
             min_eval_gap=min_eval_gap,
             depth=depth,
             verbose=True,
+            eval_cache=eval_cache,
         )
 
     if not habits:
@@ -924,6 +927,7 @@ def strategise_cmd(
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
 
+    eval_cache = EvalCache(Path("data/evals.sqlite"))
     with Cache(Path(db_path)) as cache:
         strategise(
             player=player,
@@ -942,4 +946,5 @@ def strategise_cmd(
             depth=depth,
             anthropic_api_key=anthropic_api_key,
             verbose=True,
+            eval_cache=eval_cache,
         )
