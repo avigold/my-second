@@ -24,7 +24,8 @@ ssh "$HOST" "sudo systemctl restart mysecond-web"
 
 echo "[deploy] Waiting for service..."
 sleep 3
-STATUS=$(ssh "$HOST" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/")
+# Follow redirects (-L) and check final status; 200 from /login is fine.
+STATUS=$(ssh "$HOST" "curl -sL -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/")
 if [ "$STATUS" = "200" ]; then
   echo "[deploy] OK — server responding 200"
 else
