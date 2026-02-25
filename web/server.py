@@ -12,10 +12,24 @@ from flask import (
     Flask,
     Response,
     jsonify,
+    redirect,
     render_template,
     request,
     send_file,
+    session,
     stream_with_context,
+)
+
+from auth import (
+    chesscom_auth_url,
+    chesscom_enabled,
+    chesscom_handle_callback,
+    get_current_user,
+    lichess_auth_url,
+    lichess_enabled,
+    lichess_handle_callback,
+    login_required,
+    set_session_user,
 )
 
 from habits_parser import parse_habits
@@ -57,6 +71,81 @@ DATABASE_URL = os.environ.get(
 registry = JobRegistry(DATABASE_URL)
 
 DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
+
+# ---------------------------------------------------------------------------
+# Auth gate
+# ---------------------------------------------------------------------------
+
+_AUTH_EXEMPT_PATHS = {"/login", "/auth/logout"}
+_AUTH_EXEMPT_PREFIXES = ("/auth/lichess", "/auth/chesscom", "/static/")
+
+
+@app.before_request
+def require_login():
+    path = request.path
+    if path in _AUTH_EXEMPT_PATHS:
+        return
+    if any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES):
+        return
+    if not get_current_user():
+        if path.startswith("/api/"):
+            return jsonify({"error": "unauthenticated"}), 401
+        return redirect("/login")
+
+
+@app.context_processor
+def inject_current_user():
+    return {"current_user": get_current_user()}
+
+
+# ---------------------------------------------------------------------------
+# Auth routes
+# ---------------------------------------------------------------------------
+
+
+@app.get("/login")
+def login_page():
+    if get_current_user():
+        return redirect("/")
+    return render_template(
+        "login.html",
+        lichess_ok=lichess_enabled(),
+        chesscom_ok=chesscom_enabled(),
+    )
+
+
+@app.get("/auth/lichess")
+def auth_lichess():
+    return redirect(lichess_auth_url())
+
+
+@app.get("/auth/lichess/callback")
+def auth_lichess_callback():
+    user = lichess_handle_callback(registry)
+    if user is None:
+        return "Authentication failed — please try again.", 400
+    set_session_user(user)
+    return redirect("/")
+
+
+@app.get("/auth/chesscom")
+def auth_chesscom():
+    return redirect(chesscom_auth_url())
+
+
+@app.get("/auth/chesscom/callback")
+def auth_chesscom_callback():
+    user = chesscom_handle_callback(registry)
+    if user is None:
+        return "Authentication failed — please try again.", 400
+    set_session_user(user)
+    return redirect("/")
+
+
+@app.get("/auth/logout")
+def auth_logout():
+    session.clear()
+    return redirect("/login")
 
 
 def _vite_tags() -> tuple[str, str]:
@@ -141,7 +230,8 @@ def api_fetch():
     if not params.get("username") or not params.get("color"):
         return jsonify({"error": "username and color are required"}), 400
 
-    job = registry.create("fetch", params)
+    user = get_current_user()
+    job = registry.create("fetch", params, user_id=user["id"] if user else None)
     argv = build_fetch_argv(params)
     launch_job(job, argv, REPO_ROOT, registry)
     return jsonify({"job_id": job.id})
@@ -156,7 +246,8 @@ def api_search():
     # Build output path before launching so the server knows where to find it.
     out_path = str(OUTPUT_DIR / f"{params.get('side', 'white')}_ideas.pgn")
     # Use a job-specific name to avoid collisions.
-    job = registry.create("search", params, out_path=out_path)
+    user = get_current_user()
+    job = registry.create("search", params, out_path=out_path, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path  # update before subprocess starts
 
@@ -168,7 +259,11 @@ def api_search():
 @app.get("/api/dashboard")
 def api_dashboard():
     """Aggregate job data for the dashboard visualisations."""
-    all_jobs = registry.list_all()   # newest first
+    user = get_current_user()
+    if user and user.get("role") == "admin":
+        all_jobs = registry.list_all()
+    else:
+        all_jobs = registry.list_for_user(user["id"]) if user else []
     done_jobs = [j for j in all_jobs if j["status"] == "done"]
 
     # Job counts by command type
@@ -245,7 +340,10 @@ def api_dashboard():
 
 @app.get("/api/jobs")
 def api_jobs():
-    return jsonify(registry.list_all())
+    user = get_current_user()
+    if user and user.get("role") == "admin":
+        return jsonify(registry.list_all())
+    return jsonify(registry.list_for_user(user["id"]))
 
 
 @app.get("/api/jobs/<job_id>")
@@ -357,7 +455,8 @@ def api_repertoire():
     if not params.get("username") or not params.get("color"):
         return jsonify({"error": "username and color are required"}), 400
 
-    job = registry.create("repertoire", params)
+    user = get_current_user()
+    job = registry.create("repertoire", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path
 
@@ -462,7 +561,8 @@ def api_habits():
     if not params.get("username") or not params.get("color"):
         return jsonify({"error": "username and color are required"}), 400
 
-    job = registry.create("habits", params)
+    user = get_current_user()
+    job = registry.create("habits", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path
 
@@ -491,7 +591,8 @@ def api_strategise():
     if not params.get("api_key"):
         params["api_key"] = os.environ.get("ANTHROPIC_API_KEY") or None
 
-    job = registry.create("strategise", params)
+    user = get_current_user()
+    job = registry.create("strategise", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.json")
     job.out_path = out_path
 
@@ -530,7 +631,8 @@ def api_import_pgn():
     if max_plies.isdigit():
         params["max_plies"] = int(max_plies)
 
-    job = registry.create("import", params)
+    user = get_current_user()
+    job = registry.create("import", params, user_id=user["id"] if user else None)
 
     # Save the uploaded file under the job ID so the subprocess can read it.
     pgn_path = str(UPLOADS_DIR / f"{job.id}.pgn")

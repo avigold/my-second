@@ -25,6 +25,16 @@ CREATE TABLE IF NOT EXISTS users (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Idempotent: add role column if it doesn't exist yet.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='users' AND column_name='role'
+  ) THEN
+    ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user';
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS jobs (
     id          UUID PRIMARY KEY,
     user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -116,6 +126,46 @@ class JobRegistry:
         with self._lock:
             jobs = list(self._jobs.values())
         return [j.to_dict() for j in sorted(jobs, key=lambda j: j.started_at, reverse=True)]
+
+    def upsert_user(
+        self,
+        *,
+        username: str,
+        lichess_id: str | None = None,
+        chesscom_id: str | None = None,
+    ) -> dict:
+        """Create or update a user by Lichess or Chess.com ID. Returns user dict."""
+        with self._conn() as conn, conn.cursor() as cur:
+            if lichess_id:
+                cur.execute(
+                    """
+                    INSERT INTO users (lichess_id, username)
+                    VALUES (%s, %s)
+                    ON CONFLICT (lichess_id) DO UPDATE SET username = EXCLUDED.username
+                    RETURNING id, username, role
+                    """,
+                    (lichess_id, username),
+                )
+                platform = "lichess"
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO users (chesscom_id, username)
+                    VALUES (%s, %s)
+                    ON CONFLICT (chesscom_id) DO UPDATE SET username = EXCLUDED.username
+                    RETURNING id, username, role
+                    """,
+                    (chesscom_id, username),
+                )
+                platform = "chesscom"
+            row = cur.fetchone()
+            conn.commit()
+        return {
+            "id":       str(row[0]),
+            "username": row[1],
+            "role":     row[2],
+            "platform": platform,
+        }
 
     def list_for_user(self, user_id: str) -> list[dict]:
         with self._lock:

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Log in — mysecond{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-center" style="min-height:70vh;">
+  <div class="w-full max-w-sm">
+
+    <!-- Card -->
+    <div class="rounded-2xl border border-gray-800 px-8 py-10 text-center"
+         style="background:#0f172a;">
+
+      <a href="/" class="inline-block mb-6 text-amber-400 text-2xl font-bold tracking-tight">♘ mysecond</a>
+      <h1 class="text-lg font-semibold text-white mb-1">Welcome back</h1>
+      <p class="text-sm text-gray-400 mb-8">Log in with your chess account to continue.</p>
+
+      <div class="flex flex-col gap-3">
+
+        {% if lichess_ok %}
+        <a href="/auth/lichess"
+           class="flex items-center justify-center gap-3 rounded-lg border border-gray-600 bg-gray-800 px-4 py-3
+                  text-sm font-medium text-gray-100 hover:bg-gray-700 hover:border-gray-500 transition-colors no-underline">
+          <!-- Lichess logo (simplified chess piece SVG) -->
+          <svg width="20" height="20" viewBox="0 0 50 50" fill="currentColor" class="shrink-0 text-gray-300">
+            <path d="M38.956.5c-3.53.418-6.452 2.118-8.72 4.202C28.246 6.05 26.547 7.815 25 10.07
+                     c-1.547-2.255-3.246-4.02-5.236-5.368C17.496 2.618 14.574.918 11.044.5
+                     c4.738 4.015 6.568 8.45 6.568 14.297L17 22l-4 4h24l-4-4-.612-7.203
+                     C32.388 8.95 34.218 4.515 38.956.5z
+                     M17 28l-1 5H34l-1-5H17z
+                     M16 35l-1 5H35l-1-5H16z
+                     M15 42l-1 6H36l-1-6H15z"/>
+          </svg>
+          Continue with Lichess
+        </a>
+        {% endif %}
+
+        {% if chesscom_ok %}
+        <a href="/auth/chesscom"
+           class="flex items-center justify-center gap-3 rounded-lg border border-gray-600 bg-gray-800 px-4 py-3
+                  text-sm font-medium text-gray-100 hover:bg-gray-700 hover:border-gray-500 transition-colors no-underline">
+          <!-- Chess.com green square icon -->
+          <svg width="20" height="20" viewBox="0 0 40 40" fill="none" class="shrink-0">
+            <rect width="40" height="40" rx="6" fill="#81b64c"/>
+            <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle"
+                  font-size="22" font-weight="bold" fill="white">♛</text>
+          </svg>
+          Continue with Chess.com
+        </a>
+        {% endif %}
+
+        {% if not lichess_ok and not chesscom_ok %}
+        <p class="text-sm text-red-400 border border-red-900 rounded-lg px-4 py-3 bg-red-950">
+          OAuth is not configured. Set <code>LICHESS_CLIENT_ID</code> (and/or <code>CHESSCOM_CLIENT_ID</code> +
+          <code>CHESSCOM_CLIENT_SECRET</code>) in the server environment.
+        </p>
+        {% endif %}
+
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
