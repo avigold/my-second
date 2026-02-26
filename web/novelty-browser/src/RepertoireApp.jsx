@@ -1,6 +1,16 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import RepertoireBoard from './components/RepertoireBoard.jsx'
 
+function useIsMobile(bp = 640) {
+  const [v, setV] = useState(() => window.innerWidth < bp)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < bp)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [bp])
+  return v
+}
+
 // ---------------------------------------------------------------------------
 // Flatten the nested tree into a Map<id, node> for O(1) lookup.
 // ---------------------------------------------------------------------------
@@ -11,6 +21,7 @@ function flattenTree(node, map = new Map()) {
 }
 
 export default function RepertoireApp({ jobId, side }) {
+  const isMobile = useIsMobile()
   const [nodeMap,    setNodeMap]    = useState(null)
   const [rootId,     setRootId]     = useState(null)
   const [curId,      setCurId]      = useState(null)
@@ -82,6 +93,53 @@ export default function RepertoireApp({ jobId, side }) {
   )
 
   const currentNode = nodeMap.get(curId)
+
+  if (isMobile) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh',
+                    background: '#030712', color: '#f3f4f6' }}>
+        {/* Header */}
+        <div style={{ padding: '10px 14px', borderBottom: '1px solid #1f2937',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      gap: 8, flexShrink: 0 }}>
+          <span style={{ color: '#9ca3af', fontSize: 12, overflow: 'hidden',
+                         textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+            Repertoire · {jobId.slice(0, 8)}
+          </span>
+          <a href={`/jobs/${jobId}`}
+             style={{ color: '#6b7280', fontSize: 12, textDecoration: 'none',
+                      whiteSpace: 'nowrap', flexShrink: 0 }}>
+            ← Job
+          </a>
+        </div>
+
+        {/* Board (full width) */}
+        <div style={{ padding: '14px 12px' }}>
+          <RepertoireBoard
+            node={currentNode}
+            nodeMap={nodeMap}
+            orientation={side}
+            onNavigate={goTo}
+            onBack={goBack}
+            canGoBack={path.length > 1}
+            treeStats={treeStats}
+          />
+        </div>
+
+        {/* Path history strip */}
+        {path.length > 1 && (
+          <div style={{ borderTop: '1px solid #1f2937', overflowY: 'auto', maxHeight: 130,
+                        fontFamily: 'monospace', fontSize: 13 }}>
+            <div style={{ padding: '4px 8px 2px', color: '#4b5563', fontSize: 10,
+                          textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Path
+            </div>
+            <PathList path={path} nodeMap={nodeMap} curId={curId} onSelect={goTo} />
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#030712', color: '#f3f4f6' }}>

@@ -2,7 +2,18 @@ import React, { useEffect, useState } from 'react'
 import NoveltyTable from './components/NoveltyTable.jsx'
 import NoveltyBoard from './components/NoveltyBoard.jsx'
 
+function useIsMobile(bp = 640) {
+  const [v, setV] = useState(() => window.innerWidth < bp)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < bp)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [bp])
+  return v
+}
+
 export default function App({ jobId, side }) {
+  const isMobile = useIsMobile()
   const [novelties, setNovelties] = useState(null)  // null = loading
   const [error,     setError]     = useState(null)
   const [selected,  setSelected]  = useState(0)
@@ -41,6 +52,43 @@ export default function App({ jobId, side }) {
   const handleSelectNovelty = (novelty) => {
     const idx = novelties.findIndex(n => n.rank === novelty.rank)
     if (idx !== -1) setSelected(idx)
+  }
+
+  if (isMobile) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh',
+                    background: '#030712', color: '#f3f4f6' }}>
+        {/* Header */}
+        <div style={{ padding: '10px 14px', borderBottom: '1px solid #1f2937',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      flexShrink: 0 }}>
+          <span style={{ color: '#9ca3af', fontSize: 12 }}>
+            {novelties.length} novelties · job {jobId.slice(0, 8)}
+          </span>
+          <a href={`/jobs/${jobId}`}
+             style={{ color: '#6b7280', fontSize: 12, textDecoration: 'none' }}>
+            ← Job
+          </a>
+        </div>
+
+        {/* Board */}
+        <div style={{ padding: '14px 12px' }}>
+          <NoveltyBoard
+            novelty={current}
+            allNovelties={novelties}
+            orientation={side}
+            onSelectNovelty={handleSelectNovelty}
+          />
+        </div>
+
+        {/* Table */}
+        <div style={{ borderTop: '1px solid #1f2937', overflowX: 'auto' }}>
+          <div style={{ minWidth: 420 }}>
+            <NoveltyTable novelties={novelties} selected={selected} onSelect={setSelected} />
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

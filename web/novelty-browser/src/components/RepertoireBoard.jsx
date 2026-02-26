@@ -1,9 +1,19 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import Chessground from '@react-chess/chessground'
 
-const BOARD_SIZE = 480
+function useIsMobile(bp = 640) {
+  const [v, setV] = useState(() => window.innerWidth < bp)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < bp)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [bp])
+  return v
+}
 
 export default function RepertoireBoard({ node, nodeMap, orientation, onNavigate, onBack, canGoBack, treeStats }) {
+  const isMobile = useIsMobile()
+  const boardSize = isMobile ? Math.min(480, window.innerWidth - 24) : 480
   if (!node) return null
 
   const config = {
@@ -18,19 +28,40 @@ export default function RepertoireBoard({ node, nodeMap, orientation, onNavigate
 
   const children = node.children || []
 
+  if (isMobile) {
+    return (
+      <div>
+        {/* Board */}
+        <div style={{ width: boardSize, height: boardSize }}>
+          <Chessground width={boardSize} height={boardSize} config={config} />
+        </div>
+        <NavBar onBack={onBack} canGoBack={canGoBack} />
+
+        {/* Navigation (immediately below board — most important on mobile) */}
+        <div style={{ marginTop: 12 }}>
+          <AnnotationPanel node={node} />
+          <MovesPanel children={children} nodeMap={nodeMap} onNavigate={onNavigate} />
+        </div>
+
+        {/* Stats (secondary — scroll to see) */}
+        <StatsPanel node={node} treeStats={treeStats} orientation={orientation} />
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
 
       {/* Left: board + nav + stats */}
-      <div style={{ flexShrink: 0, width: BOARD_SIZE }}>
-        <div style={{ width: BOARD_SIZE, height: BOARD_SIZE }}>
-          <Chessground width={BOARD_SIZE} height={BOARD_SIZE} config={config} />
+      <div style={{ flexShrink: 0, width: 480 }}>
+        <div style={{ width: 480, height: 480 }}>
+          <Chessground width={480} height={480} config={config} />
         </div>
         <NavBar onBack={onBack} canGoBack={canGoBack} />
         <StatsPanel node={node} treeStats={treeStats} orientation={orientation} />
       </div>
 
-      {/* Right: move choices + annotation */}
+      {/* Right: annotation + moves */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <AnnotationPanel node={node} />
         <MovesPanel children={children} nodeMap={nodeMap} onNavigate={onNavigate} />
