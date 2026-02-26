@@ -2,13 +2,26 @@ import React, { useState, useEffect, useMemo } from 'react'
 import Chessground from '@react-chess/chessground'
 import { Chess } from 'chess.js'
 
-const BOARD_SIZE = 480
+function useIsMobile(bp = 640) {
+  const [v, setV] = useState(() => window.innerWidth < bp)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < bp)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [bp])
+  return v
+}
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export default function HabitsBoard({ habit, orientation }) {
+  const isMobile = useIsMobile()
+  const boardSize = isMobile
+    ? Math.min(480, window.innerWidth - 24)
+    : 480
+
   // 'arrows' = show starting position with both move arrows
   // 'player' = show result of player's habitual move
   // 'best'   = show result of engine's best move
@@ -44,7 +57,6 @@ export default function HabitsBoard({ habit, orientation }) {
     if (!habit) return { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', lastMove: null, autoShapes: [] }
 
     if (view === 'arrows') {
-      // Starting position with both move arrows drawn on top
       const shapes = []
       if (habit.player_move_orig && habit.player_move_dest) {
         shapes.push({ orig: habit.player_move_orig, dest: habit.player_move_dest, brush: 'red' })
@@ -55,7 +67,6 @@ export default function HabitsBoard({ habit, orientation }) {
       return { fen: habit.fen, lastMove: null, autoShapes: shapes }
     }
 
-    // Apply the selected move with chess.js and show the resulting position
     const orig = view === 'player' ? habit.player_move_orig : habit.best_move_orig
     const dest = view === 'player' ? habit.player_move_dest : habit.best_move_dest
     try {
@@ -85,18 +96,19 @@ export default function HabitsBoard({ habit, orientation }) {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row',
+                  gap: isMobile ? 16 : 24, alignItems: 'flex-start' }}>
 
-      {/* Left: board + view controls */}
+      {/* Board + view controls */}
       <div style={{ flexShrink: 0 }}>
-        <div style={{ width: BOARD_SIZE, height: BOARD_SIZE }}>
-          <Chessground width={BOARD_SIZE} height={BOARD_SIZE} config={config} />
+        <div style={{ width: boardSize, height: boardSize }}>
+          <Chessground width={boardSize} height={boardSize} config={config} />
         </div>
         <ViewBar view={view} setView={setView} />
       </div>
 
-      {/* Right: eval panel + Lichess link */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Eval panel + Lichess link */}
+      <div style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : 'auto' }}>
         <EvalPanel habit={habit} />
         <LichessLink fen={habit.fen} />
       </div>
@@ -211,7 +223,6 @@ function EvalPanel({ habit }) {
 // ---------------------------------------------------------------------------
 
 function LichessLink({ fen }) {
-  // Lichess analysis URLs use underscores instead of spaces in the FEN
   const url = `https://lichess.org/analysis/${fen.replace(/ /g, '_')}`
   return (
     <a

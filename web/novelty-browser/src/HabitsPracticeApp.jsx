@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from 'react'
 import HabitsPracticeBoard from './components/HabitsPracticeBoard.jsx'
 
+function useIsMobile(bp = 640) {
+  const [v, setV] = useState(() => window.innerWidth < bp)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < bp)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [bp])
+  return v
+}
+
 export default function HabitsPracticeApp({ jobId, side }) {
   const [habits,   setHabits]   = useState(null)
   const [error,    setError]    = useState(null)
@@ -49,6 +59,8 @@ export default function HabitsPracticeApp({ jobId, side }) {
     return <FinishedScreen total={habits.length} correct={correct} skipped={skipped} onRestart={restart} jobId={jobId} />
   }
 
+  const isMobile = useIsMobile()
+
   const habit = habits[index]
   const progress = {
     current: index + 1,
@@ -81,7 +93,7 @@ export default function HabitsPracticeApp({ jobId, side }) {
       </div>
 
       {/* Main content — padded below header */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '64px 24px 24px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '60px 12px 16px' : '64px 24px 24px' }}>
         <HabitsPracticeBoard
           key={habit.rank}
           habit={habit}
