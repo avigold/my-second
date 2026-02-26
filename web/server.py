@@ -288,10 +288,7 @@ def api_search():
 def api_dashboard():
     """Aggregate job data for the dashboard visualisations."""
     user = get_current_user()
-    if user and user.get("role") == "admin":
-        all_jobs = registry.list_all()
-    else:
-        all_jobs = registry.list_for_user(user["id"]) if user else []
+    all_jobs = registry.list_for_user(user["id"]) if user else []
     done_jobs = [j for j in all_jobs if j["status"] == "done"]
 
     # Job counts by command type
@@ -369,8 +366,8 @@ def api_dashboard():
 @app.get("/api/jobs")
 def api_jobs():
     user = get_current_user()
-    if user and user.get("role") == "admin":
-        return jsonify(registry.list_all())
+    if not user:
+        return jsonify([])
     return jsonify(registry.list_for_user(user["id"]))
 
 
