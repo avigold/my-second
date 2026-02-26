@@ -71,6 +71,7 @@ def strategise(
 
     _banner(player, player_color, player_platform, opponent, opponent_color,
             opponent_platform, verbose)
+    _progress(verbose, "step", 0, 10)   # bar appears immediately
 
     # ── 1. Load / fetch caches ───────────────────────────────────────────────
     player_backend   = _backend_key(player,   player_color,   player_speeds,   platform=player_platform)
@@ -83,15 +84,18 @@ def strategise(
         _log(verbose, f"[strategise] No cache for {player} ({player_platform}, {player_color}, {player_speeds}) — fetching …")
         _fetch(player, player_color, player_platform, player_speeds, cache, verbose)
         player_index = _load_index(cache, player_backend)
+        _progress(verbose, "step", 1, 10)   # player fetched
 
     if not opponent_index:
         _log(verbose, f"[strategise] No cache for {opponent} ({opponent_platform}, {opponent_color}, {opponent_speeds}) — fetching …")
         _fetch(opponent, opponent_color, opponent_platform, opponent_speeds, cache, verbose)
         opponent_index = _load_index(cache, opponent_backend)
+        _progress(verbose, "step", 2, 10)   # opponent fetched
 
     _log(verbose,
          f"[strategise] {len(player_index)} positions for {player}, "
          f"{len(opponent_index)} for {opponent}.")
+    _progress(verbose, "step", 2, 10)   # caches ready
 
     # ── 2. Habit analysis + phase analysis (all in parallel) ─────────────────
     _log(verbose, f"[strategise] Analysing habits and game phases in parallel …")
@@ -124,6 +128,7 @@ def strategise(
         opponent_phase   = opp_phase_future.result()
 
     _log(verbose, f"[strategise] {len(opponent_habits)} opponent + {len(player_habits)} player habit inaccuracies found.")
+    _progress(verbose, "step", 7, 10)   # habits + phases done (~85% overall)
 
     # ── 3. Style profiles ────────────────────────────────────────────────────
     _log(verbose, "[strategise] Computing style profiles …")
@@ -150,6 +155,7 @@ def strategise(
         player_habits, opponent_index, rank_limit=max_positions,
     )
     _log(verbose, f"[strategise] {len(prep_gaps)} player prep gaps identified.")
+    _progress(verbose, "step", 8, 10)   # all structural analysis done (~96%)
 
     # ── 7. Key positions ─────────────────────────────────────────────────────
     key_positions = _key_positions(battlegrounds, opponent_weaknesses, prep_gaps)
@@ -176,6 +182,7 @@ def strategise(
             _log(verbose, f"[strategise] Claude API call failed: {exc}")
     else:
         _log(verbose, "[strategise] No API key — skipping AI brief.")
+    _progress(verbose, "step", 9, 10)   # Claude done (~99%)
 
     # ── 9. Assemble and write result ─────────────────────────────────────────
     result: dict[str, Any] = {
@@ -919,3 +926,8 @@ def _banner(player, player_color, player_platform, opponent, opponent_color,
 def _log(verbose: bool, msg: str) -> None:
     if verbose:
         print(msg, flush=True)
+
+
+def _progress(verbose: bool, tag: str, n: int, m: int) -> None:
+    if verbose:
+        print(f"[progress:{tag}] {n}/{m}", flush=True)
