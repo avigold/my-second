@@ -2,8 +2,8 @@
 {% block title %}mysecond – Job {{ job.id[:8] }}{% endblock %}
 
 {% block content %}
-<div class="flex items-start justify-between mb-6">
-  <div class="flex items-start gap-4">
+<div class="flex flex-col gap-3 mb-6 sm:flex-row sm:items-start sm:justify-between">
+  <div class="flex items-start gap-4 min-w-0">
 
     {# Determine the white player's username + platform for the avatar.
        Search jobs use player/opponent fields; all others use username. #}
@@ -35,8 +35,8 @@
     </div>
     {% endif %}
 
-    <div>
-      <div class="flex items-center gap-3 mb-1">
+    <div class="min-w-0">
+      <div class="flex items-center gap-3 mb-1 flex-wrap">
         <h1 class="text-2xl font-bold">
           {% if job.command == "fetch" %}Fetch Games
           {% elif job.command == "search" %}Find Novelties
@@ -51,7 +51,7 @@
           {{ job.status }}
         </span>
       </div>
-      <p class="text-gray-500 text-xs font-mono">{{ job.id }}</p>
+      <p class="text-gray-500 text-xs font-mono truncate">{{ job.id }}</p>
       {% if _au %}
       <p class="text-gray-500 text-xs mt-0.5">
         {{ _au }}{% if _ap %} · {{ _ap }}{% endif %}
@@ -62,7 +62,7 @@
 
   </div>
 
-  <div class="flex gap-2 items-center">
+  <div class="flex flex-wrap gap-2 items-center shrink-0">
     {% if job.command == 'search' %}
     <a href="/jobs/{{ job.id }}/novelties"
        class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
