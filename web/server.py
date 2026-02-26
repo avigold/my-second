@@ -82,7 +82,7 @@ DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 # Auth gate
 # ---------------------------------------------------------------------------
 
-_AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout"}
+_AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout", "/pricing"}
 _AUTH_EXEMPT_PREFIXES = ("/auth/lichess", "/auth/chesscom", "/auth/google", "/static/")
 
 
@@ -621,6 +621,11 @@ def strategise_report_page(job_id: str):
         css_tag=css_tag,
         js_tag=js_tag,
     )
+
+
+@app.get("/pricing")
+def pricing_page():
+    return render_template("pricing.html")
 
 
 @app.get("/import-pgn")
