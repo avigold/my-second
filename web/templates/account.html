@@ -15,7 +15,10 @@
     <div>
       <h1 class="text-2xl font-bold text-white">{{ user.username }}</h1>
       <p class="text-gray-500 text-sm">
-        {% if plan == 'pro' %}
+        {% set chess_titles = ['GM','WGM','IM','WIM','FM','WFM','CM','WCM','NM'] %}
+        {% if user.role in chess_titles %}
+          <span style="color:#f59e0b;font-weight:600;">● {{ user.role }}</span>
+        {% elif plan == 'pro' %}
           <span style="color:#f59e0b;font-weight:600;">● Pro</span>
         {% else %}
           <span style="color:#6b7280;">● Free plan</span>
@@ -33,7 +36,7 @@
         <span style="background:rgba(245,158,11,0.15);color:#f59e0b;
                      font-size:0.7rem;font-weight:700;text-transform:uppercase;
                      letter-spacing:.07em;padding:0.2rem 0.6rem;border-radius:9999px;
-                     border:1px solid rgba(245,158,11,0.3);">Pro</span>
+                     border:1px solid rgba(245,158,11,0.3);">{% if user.role in ['GM','WGM','IM','WIM','FM','WFM','CM','WCM','NM'] %}{{ user.role }}{% else %}Pro{% endif %}</span>
       {% else %}
         <span style="background:#1f2937;color:#9ca3af;
                      font-size:0.7rem;font-weight:600;text-transform:uppercase;
@@ -55,7 +58,7 @@
         </p>
       {% endif %}
 
-      {% if stripe_ok %}
+      {% if stripe_ok and user.role not in ['GM','WGM','IM','WIM','FM','WFM','CM','WCM','NM'] and user.role != 'admin' %}
       <div class="mt-5">
         <button onclick="manageSubscription()"
                 class="btn-secondary text-sm">
@@ -66,8 +69,8 @@
 
     {% else %}
       <p class="text-gray-400 text-sm mb-5">
-        Free plan includes 3 analyses per tool per month.
-        Upgrade for unlimited access and Strategise.
+        Free plan includes 3 analyses per tool per month, plus 1 Strategise.
+        Upgrade for unlimited access.
       </p>
       {% if stripe_ok %}
       <button onclick="startCheckout()"
@@ -110,25 +113,18 @@
           <span class="text-xs font-mono text-gray-500">
             {% if limit is none %}
               {{ used }} used &nbsp;·&nbsp; <span style="color:#f59e0b;">unlimited</span>
-            {% elif cmd == 'strategise' and plan != 'pro' %}
-              <span style="color:#6b7280;">Pro only</span>
             {% else %}
               {{ used }} / {{ limit }}
             {% endif %}
           </span>
         </div>
 
-        {% if limit is not none and cmd != 'strategise' %}
+        {% if limit is not none %}
           {% set pct = [((used / limit) * 100)|int, 100]|min %}
           <div style="background:#1f2937;border-radius:9999px;height:5px;overflow:hidden;">
             <div style="height:5px;border-radius:9999px;width:{{ pct }}%;
                         background:{% if pct >= 100 %}#f87171{% elif pct >= 67 %}#fbbf24{% else %}#4ade80{% endif %};
                         transition:width 0.4s ease;"></div>
-          </div>
-        {% elif cmd == 'strategise' and plan != 'pro' %}
-          <div style="background:#1f2937;border-radius:9999px;height:5px;">
-            <div style="height:5px;border-radius:9999px;width:100%;
-                        background:#374151;"></div>
           </div>
         {% else %}
           <!-- Pro: no bar for unlimited -->

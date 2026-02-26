@@ -68,25 +68,25 @@
             <span class="text-gray-300">Extract Repertoire — 3 analyses / month</span>
           </li>
           <li class="flex items-start gap-3 text-sm">
-            <span style="color:#6b7280;flex-shrink:0;margin-top:1px;">✗</span>
-            <span class="text-gray-600">Strategise (AI opponent prep)</span>
+            <span style="color:#4ade80;flex-shrink:0;margin-top:1px;">✓</span>
+            <span class="text-gray-300">Strategise — 1 analysis / month</span>
           </li>
         </ul>
 
-        <a href="/auth/google"
+        <a href="{{ '/account' if current_user else '/auth/google' }}"
            style="display:block;text-align:center;padding:0.65rem 1.5rem;
                   border-radius:0.4rem;font-weight:600;font-size:0.9rem;
                   background:#1f2937;color:#f3f4f6;text-decoration:none;
                   border:1px solid #374151;transition:background 0.15s,border-color 0.15s;"
            onmouseover="this.style.background='#374151';this.style.borderColor='#4b5563'"
            onmouseout="this.style.background='#1f2937';this.style.borderColor='#374151'">
-          Get started free
+          {{ 'Go to dashboard' if current_user else 'Get started free' }}
         </a>
       </div>
 
 
       <!-- ── Pro ──────────────────────────────────────────────────────── -->
-      <div class="rounded-2xl border p-8 flex flex-col relative overflow-hidden"
+      <div class="rounded-2xl border p-8 flex flex-col relative"
            style="background:#0e1d35;border-color:rgba(245,158,11,0.35);
                   box-shadow:0 0 0 1px rgba(245,158,11,0.06),0 12px 40px rgba(0,0,0,0.5);">
 
@@ -138,7 +138,7 @@
           </li>
         </ul>
 
-        <a href="/auth/google"
+        <a href="{{ '/account' if current_user else '/auth/google' }}"
            style="display:block;text-align:center;padding:0.75rem 1.5rem;
                   border-radius:0.4rem;font-weight:700;font-size:0.95rem;
                   background:#f59e0b;color:#030712;text-decoration:none;
@@ -146,7 +146,7 @@
                   box-shadow:0 0 0 0 rgba(245,158,11,0);"
            onmouseover="this.style.background='#fbbf24';this.style.boxShadow='0 0 20px rgba(245,158,11,0.3)'"
            onmouseout="this.style.background='#f59e0b';this.style.boxShadow='none'">
-          Get started
+          {{ 'Upgrade now' if current_user else 'Get started' }}
         </a>
       </div>
 
@@ -182,7 +182,7 @@
           ("Find Novelties",     "3 / mo", "∞",   true),
           ("Analyse Habits",     "3 / mo", "∞",   true),
           ("Extract Repertoire", "3 / mo", "∞",   true),
-          ("Strategise",               "—", "✓",  true),
+          ("Strategise",         "1 / mo", "∞",  true),
           ("Priority queue",           "—", "✓",  false),
         ] %}
         {% for label, free_val, pro_val, highlight in rows %}
@@ -256,6 +256,7 @@
 </section>
 
 
+{% if not current_user %}
 <!-- ─── Final CTA ─────────────────────────────────────────────────────────── -->
 <section class="text-center px-6 py-20" style="background:#040c1a;border-top:1px solid #1a2540;">
   <div class="relative inline-block">
@@ -286,6 +287,7 @@
     </div>
   </div>
 </section>
+{% endif %}
 
 {% endblock %}
 

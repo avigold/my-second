@@ -479,13 +479,16 @@ def _kill_job_process(job) -> None:
 # Plan / freemium helpers
 # ---------------------------------------------------------------------------
 
-_FREE_LIMITS: dict[str, int] = {"search": 3, "habits": 3, "repertoire": 3}
-_PRO_ONLY: set[str] = {"strategise"}
+_FREE_LIMITS: dict[str, int] = {"search": 3, "habits": 3, "repertoire": 3, "strategise": 1}
+_PRO_ONLY: set[str] = set()
+
+
+_TITLED_ROLES = {"GM", "WGM", "IM", "WIM", "FM", "WFM", "CM", "WCM", "NM"}
 
 
 def _effective_plan(user: dict) -> str:
-    """Admins always get pro access; otherwise look up the subscriptions table."""
-    if user.get("role") == "admin":
+    """Admins and titled players always get pro access; otherwise look up subscriptions."""
+    if user.get("role") in {"admin"} | _TITLED_ROLES:
         return "pro"
     return registry.get_user_plan(user["id"])
 
@@ -759,10 +762,15 @@ def stripe_create_portal():
 
     s = _stripe_client()
     base = request.host_url.rstrip("/")
-    portal = s.billing_portal.Session.create(
-        customer=customer_id,
-        return_url=f"{base}/account",
-    )
+    try:
+        portal = s.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=f"{base}/account",
+        )
+    except s.error.InvalidRequestError as e:
+        return jsonify({"error": str(e.user_message or e)}), 400
+    except s.error.StripeError as e:
+        return jsonify({"error": str(e.user_message or e)}), 502
     return jsonify({"url": portal.url})
 
 

@@ -105,7 +105,7 @@ class JobRegistry:
     """Thread-safe in-memory store with PostgreSQL persistence."""
 
     def __init__(self, database_url: str) -> None:
-        self._pool = psycopg2.pool.ThreadedConnectionPool(1, 10, database_url)
+        self._pool = psycopg2.pool.ThreadedConnectionPool(2, 20, database_url)
         self._lock = threading.Lock()
         self._jobs: dict[str, Job] = {}
         self._init_db()
