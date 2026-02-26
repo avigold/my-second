@@ -1,4 +1,4 @@
-"""OAuth authentication: Lichess (PKCE) and Chess.com."""
+"""OAuth authentication: Lichess (PKCE), Chess.com, and Google."""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ from flask import redirect, request, session
 LICHESS_CLIENT_ID      = os.environ.get("LICHESS_CLIENT_ID", "")
 CHESSCOM_CLIENT_ID     = os.environ.get("CHESSCOM_CLIENT_ID", "")
 CHESSCOM_CLIENT_SECRET = os.environ.get("CHESSCOM_CLIENT_SECRET", "")
+GOOGLE_CLIENT_ID       = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET   = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
 
 def _app_url() -> str:
@@ -158,6 +160,70 @@ def chesscom_handle_callback(registry) -> dict | None:
         return None
 
     return registry.upsert_user(chesscom_id=username, username=username)
+
+
+# ---------------------------------------------------------------------------
+# Google — standard OAuth 2.0 + OpenID Connect
+# ---------------------------------------------------------------------------
+
+def google_enabled() -> bool:
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+
+
+def google_auth_url() -> str:
+    state = secrets.token_urlsafe(16)
+    session["oauth_state"] = state
+
+    params = {
+        "response_type": "code",
+        "client_id":     GOOGLE_CLIENT_ID,
+        "redirect_uri":  _redirect_uri("google"),
+        "scope":         "openid email profile",
+        "state":         state,
+    }
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+
+
+def google_handle_callback(registry) -> dict | None:
+    code  = request.args.get("code")
+    state = request.args.get("state")
+    if not code or state != session.pop("oauth_state", None):
+        return None
+
+    resp = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "grant_type":    "authorization_code",
+            "code":          code,
+            "client_id":     GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri":  _redirect_uri("google"),
+        },
+        timeout=10,
+    )
+    if not resp.ok:
+        return None
+
+    token = resp.json().get("access_token")
+    if not token:
+        return None
+
+    userinfo = requests.get(
+        "https://www.googleapis.com/oauth2/v3/userinfo",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    ).json()
+
+    google_id = userinfo.get("sub")
+    if not google_id:
+        return None
+
+    # Prefer display name; fall back to email prefix
+    username = (userinfo.get("name")
+                or (userinfo.get("email") or "").split("@")[0]
+                or google_id)
+
+    return registry.upsert_user(google_id=google_id, username=username)
 
 
 # ---------------------------------------------------------------------------

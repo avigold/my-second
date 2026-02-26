@@ -25,13 +25,19 @@ CREATE TABLE IF NOT EXISTS users (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Idempotent: add role column if it doesn't exist yet.
+-- Idempotent: add columns that may not exist yet.
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name='users' AND column_name='role'
   ) THEN
     ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='users' AND column_name='google_id'
+  ) THEN
+    ALTER TABLE users ADD COLUMN google_id TEXT UNIQUE;
   END IF;
 END $$;
 
@@ -133,8 +139,9 @@ class JobRegistry:
         username: str,
         lichess_id: str | None = None,
         chesscom_id: str | None = None,
+        google_id: str | None = None,
     ) -> dict:
-        """Create or update a user by Lichess or Chess.com ID. Returns user dict."""
+        """Create or update a user by platform ID. Returns user dict."""
         with self._conn() as conn, conn.cursor() as cur:
             if lichess_id:
                 cur.execute(
@@ -147,7 +154,7 @@ class JobRegistry:
                     (lichess_id, username),
                 )
                 platform = "lichess"
-            else:
+            elif chesscom_id:
                 cur.execute(
                     """
                     INSERT INTO users (chesscom_id, username)
@@ -158,6 +165,17 @@ class JobRegistry:
                     (chesscom_id, username),
                 )
                 platform = "chesscom"
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO users (google_id, username)
+                    VALUES (%s, %s)
+                    ON CONFLICT (google_id) DO UPDATE SET username = EXCLUDED.username
+                    RETURNING id, username, role
+                    """,
+                    (google_id, username),
+                )
+                platform = "google"
             row = cur.fetchone()
             conn.commit()
         return {

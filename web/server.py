@@ -25,6 +25,9 @@ from auth import (
     chesscom_enabled,
     chesscom_handle_callback,
     get_current_user,
+    google_auth_url,
+    google_enabled,
+    google_handle_callback,
     lichess_auth_url,
     lichess_enabled,
     lichess_handle_callback,
@@ -77,7 +80,7 @@ DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 # ---------------------------------------------------------------------------
 
 _AUTH_EXEMPT_PATHS = {"/login", "/auth/logout"}
-_AUTH_EXEMPT_PREFIXES = ("/auth/lichess", "/auth/chesscom", "/static/")
+_AUTH_EXEMPT_PREFIXES = ("/auth/lichess", "/auth/chesscom", "/auth/google", "/static/")
 
 
 @app.before_request
@@ -111,6 +114,7 @@ def login_page():
         "login.html",
         lichess_ok=lichess_enabled(),
         chesscom_ok=chesscom_enabled(),
+        google_ok=google_enabled(),
     )
 
 
@@ -136,6 +140,20 @@ def auth_chesscom():
 @app.get("/auth/chesscom/callback")
 def auth_chesscom_callback():
     user = chesscom_handle_callback(registry)
+    if user is None:
+        return "Authentication failed — please try again.", 400
+    set_session_user(user)
+    return redirect("/")
+
+
+@app.get("/auth/google")
+def auth_google():
+    return redirect(google_auth_url())
+
+
+@app.get("/auth/google/callback")
+def auth_google_callback():
+    user = google_handle_callback(registry)
     if user is None:
         return "Authentication failed — please try again.", 400
     set_session_user(user)
