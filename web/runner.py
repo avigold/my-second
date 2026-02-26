@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import sys
 import threading
@@ -100,6 +102,9 @@ def launch_job(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") 
         text=True,
         bufsize=1,
         cwd=str(cwd),
+        # New session → own process group, so killpg() reaches all children
+        # (e.g. Stockfish workers) not just the direct CLI process.
+        preexec_fn=os.setsid,
     )
     job.process = proc
 
@@ -111,7 +116,10 @@ def launch_job(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") 
             job.queue.put(line)
         proc.wait()
         exit_code = proc.returncode
-        status = "done" if exit_code == 0 else "failed"
+        # Preserve "cancelled" if the cancel endpoint already set it.
+        status = job.status if job.status == "cancelled" else (
+            "done" if exit_code == 0 else "failed"
+        )
         job.queue.put(None)  # sentinel — SSE generator will close
         registry.update_status(job.id, status, exit_code=exit_code)
 

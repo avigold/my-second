@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import signal
 from pathlib import Path
 
 import chess
@@ -439,14 +440,42 @@ def api_download(job_id: str):
     )
 
 
+def _kill_job_process(job) -> None:
+    """Send SIGTERM to the entire process group so child processes
+    (e.g. Stockfish workers) are also terminated, not just the CLI process."""
+    if job.process is None:
+        return
+    try:
+        os.killpg(os.getpgid(job.process.pid), signal.SIGTERM)
+    except (ProcessLookupError, OSError):
+        pass  # already exited
+
+
+@app.post("/api/jobs/<job_id>/cancel")
+def api_cancel_job(job_id: str):
+    user = get_current_user()
+    job = registry.get(job_id)
+    if job is None:
+        return jsonify({"error": "not found"}), 404
+    if user and user.get("role") != "admin" and job.user_id != user["id"]:
+        return jsonify({"error": "forbidden"}), 403
+    if job.status != "running":
+        return jsonify({"error": "job not running"}), 400
+    # Mark cancelled before killing so the reader thread preserves the status.
+    registry.mark_cancelled(job_id)
+    _kill_job_process(job)
+    return jsonify({"status": "cancelled"})
+
+
 @app.delete("/api/jobs/<job_id>")
 def api_delete_job(job_id: str):
     job = registry.get(job_id)
     if job is None:
         return jsonify({"error": "not found"}), 404
-    # Cancel if still running.
-    if job.process is not None and job.status == "running":
-        job.process.terminate()
+    # Kill the whole process group if still running.
+    if job.status == "running":
+        registry.mark_cancelled(job_id)
+        _kill_job_process(job)
     # Remove output file if present.
     if job.out_path:
         try:

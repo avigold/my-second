@@ -104,6 +104,13 @@
       ↓ Download PGN
     </a>
     {% endif %}
+    {% if job.status == 'running' %}
+    <button id="cancel-btn" onclick="cancelJob()"
+            class="btn-secondary text-sm"
+            style="color:#f87171;border-color:#7f1d1d;">
+      Cancel
+    </button>
+    {% endif %}
     <a href="/jobs" class="btn-secondary text-sm">← History</a>
   </div>
 </div>
@@ -192,10 +199,28 @@ const JOB_STATUS = {{ job.status | tojson }};
 })();
 // ────────────────────────────────────────────────────────────────────────────
 
-const logEl    = document.getElementById('log-output');
-const badge    = document.getElementById('status-badge');
-const dlBtn    = document.getElementById('download-btn');
-const autoChk  = document.getElementById('autoscroll');
+const logEl     = document.getElementById('log-output');
+const badge     = document.getElementById('status-badge');
+const dlBtn     = document.getElementById('download-btn');
+const cancelBtn = document.getElementById('cancel-btn');
+const autoChk   = document.getElementById('autoscroll');
+
+async function cancelJob() {
+  if (!cancelBtn) return;
+  cancelBtn.disabled = true;
+  cancelBtn.textContent = 'Cancelling…';
+  try {
+    const res = await fetch(`/api/jobs/${JOB_ID}/cancel`, { method: 'POST' });
+    if (!res.ok) {
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = 'Cancel';
+    }
+    // On success the process exits, SSE fires 'done', and markDone() hides the button.
+  } catch {
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = 'Cancel';
+  }
+}
 
 // ── Progress bar ─────────────────────────────────────────────────────────────
 // Format: [progress:tag] n/m  (tag is optional, e.g. a username)
@@ -235,14 +260,13 @@ function appendLine(line) {
 function markDone(status) {
   badge.textContent = status;
   badge.className = `status-${status} text-xs font-mono uppercase border border-current px-2 py-0.5 rounded`;
-  if (status === 'done' && dlBtn) dlBtn.classList.remove('hidden');
+  if (cancelBtn) cancelBtn.classList.add('hidden');
   if (status === 'done') {
+    if (dlBtn) dlBtn.classList.remove('hidden');
     ['browse-btn', 'practice-btn'].forEach(id => {
       const btn = document.getElementById(id);
       if (btn) btn.classList.remove('hidden');
     });
-  }
-  if (status === 'done') {
     markProgressDone();
     loadNoveltySummary();
     loadHabitsSummary();

@@ -194,6 +194,17 @@ class JobRegistry:
             jobs = [j for j in self._jobs.values() if j.user_id == user_id]
         return [j.to_dict() for j in sorted(jobs, key=lambda j: j.started_at, reverse=True)]
 
+    def mark_cancelled(self, job_id: str) -> bool:
+        """Mark a running job as cancelled in memory so the reader thread
+        preserves the 'cancelled' status when the process exits.
+        Returns True if the job existed and was running."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.status != "running":
+                return False
+            job.status = "cancelled"
+        return True
+
     def delete(self, job_id: str) -> bool:
         """Remove a job from memory and the database. Returns True if found."""
         with self._lock:
