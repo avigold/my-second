@@ -106,9 +106,9 @@ export default function StrategiseApp({ jobId, side }) {
       <div style={{ borderBottom: `1px solid ${C.border}`, padding: isMobile ? '10px 12px' : '10px 20px',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     flexShrink: 0, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 16, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 16, flex: 1, minWidth: 0, overflow: 'hidden' }}>
           <PlayerPill meta={data.player}   label="You"      color={C.amber}  isMobile={isMobile} />
-          <span style={{ color: C.textDim, fontSize: 13 }}>vs</span>
+          <span style={{ color: C.textDim, fontSize: 13, flexShrink: 0, alignSelf: 'center', lineHeight: 1 }}>vs</span>
           <PlayerPill meta={data.opponent} label="Opponent" color={C.redDim} isMobile={isMobile} />
         </div>
         <a href={`/jobs/${jobId}`}
@@ -118,20 +118,29 @@ export default function StrategiseApp({ jobId, side }) {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 2, padding: '0 20px', borderBottom: `1px solid ${C.border}`,
-                    flexShrink: 0, overflowX: 'auto' }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setActiveTab(t.id)}
-            style={{
-              padding: '10px 16px', fontSize: 13, border: 'none', cursor: 'pointer',
-              background: 'transparent',
-              color: activeTab === t.id ? C.amber : C.textDim,
-              borderBottom: activeTab === t.id ? `2px solid ${C.amber}` : '2px solid transparent',
-              whiteSpace: 'nowrap',
-            }}>
-            {t.label}
-          </button>
-        ))}
+      <div style={{ position: 'relative', flexShrink: 0 }}>
+        <div className="tab-strip"
+             style={{ display: 'flex', gap: 2, padding: '0 20px', borderBottom: `1px solid ${C.border}`,
+                      overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)}
+              style={{
+                padding: '10px 16px', fontSize: 13, border: 'none', cursor: 'pointer',
+                background: 'transparent',
+                color: activeTab === t.id ? C.amber : C.textDim,
+                borderBottom: activeTab === t.id ? `2px solid ${C.amber}` : '2px solid transparent',
+                whiteSpace: 'nowrap',
+              }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {/* Fade hint — signals more tabs are scrollable */}
+        <div style={{
+          position: 'absolute', right: 0, top: 0, bottom: 1,
+          width: 48, pointerEvents: 'none',
+          background: `linear-gradient(to right, transparent, ${C.bg})`,
+        }} />
       </div>
 
       {/* Content */}
