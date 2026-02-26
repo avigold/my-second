@@ -74,6 +74,10 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://mysecond:mysecond@localhost:5433/mysecond",
 )
+# Ensure DB connection attempts fail fast rather than hanging indefinitely.
+if "connect_timeout" not in DATABASE_URL:
+    DATABASE_URL += ("&" if "?" in DATABASE_URL else "?") + "connect_timeout=10"
+
 registry = JobRegistry(DATABASE_URL)
 job_queue = JobQueue()
 
@@ -83,7 +87,7 @@ DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 # Auth gate
 # ---------------------------------------------------------------------------
 
-_AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout", "/pricing"}
+_AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout", "/pricing", "/healthz"}
 _AUTH_EXEMPT_PREFIXES = (
     "/auth/lichess", "/auth/chesscom", "/auth/google", "/static/",
     "/api/stripe/webhook",   # called by Stripe servers, no user session
@@ -111,6 +115,12 @@ def inject_current_user():
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
+
+
+@app.get("/healthz")
+def healthz():
+    """Lightweight health check — no DB, no auth. Used by monitoring and nginx."""
+    return "ok", 200
 
 
 @app.get("/login")
