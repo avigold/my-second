@@ -252,6 +252,7 @@ def api_fetch():
         return jsonify({"error": "username and color are required"}), 400
 
     user = get_current_user()
+    if err := _check_user_job_limit(user): return err
     job = registry.create("fetch", params, user_id=user["id"] if user else None)
     argv = build_fetch_argv(params)
     launch_job(job, argv, REPO_ROOT, registry)
@@ -264,10 +265,9 @@ def api_search():
     if not params.get("side"):
         return jsonify({"error": "side is required"}), 400
 
-    # Build output path before launching so the server knows where to find it.
-    out_path = str(OUTPUT_DIR / f"{params.get('side', 'white')}_ideas.pgn")
-    # Use a job-specific name to avoid collisions.
     user = get_current_user()
+    if err := _check_user_job_limit(user): return err
+    out_path = str(OUTPUT_DIR / f"{params.get('side', 'white')}_ideas.pgn")
     job = registry.create("search", params, out_path=out_path, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path  # update before subprocess starts
@@ -440,6 +440,16 @@ def api_download(job_id: str):
     )
 
 
+def _check_user_job_limit(user: dict | None):
+    """Return a 409 response if the user already has a running job, else None."""
+    if user and registry.has_running_job(user["id"]):
+        return jsonify({
+            "error": "You already have a job running. "
+                     "Wait for it to finish or cancel it before starting a new one."
+        }), 409
+    return None
+
+
 def _kill_job_process(job) -> None:
     """Send SIGTERM to the entire process group so child processes
     (e.g. Stockfish workers) are also terminated, not just the CLI process."""
@@ -505,6 +515,7 @@ def api_repertoire():
         return jsonify({"error": "username and color are required"}), 400
 
     user = get_current_user()
+    if err := _check_user_job_limit(user): return err
     job = registry.create("repertoire", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path
@@ -611,6 +622,7 @@ def api_habits():
         return jsonify({"error": "username and color are required"}), 400
 
     user = get_current_user()
+    if err := _check_user_job_limit(user): return err
     job = registry.create("habits", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path
@@ -641,6 +653,7 @@ def api_strategise():
         params["api_key"] = os.environ.get("ANTHROPIC_API_KEY") or None
 
     user = get_current_user()
+    if err := _check_user_job_limit(user): return err
     job = registry.create("strategise", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.json")
     job.out_path = out_path
@@ -681,6 +694,7 @@ def api_import_pgn():
         params["max_plies"] = int(max_plies)
 
     user = get_current_user()
+    if err := _check_user_job_limit(user): return err
     job = registry.create("import", params, user_id=user["id"] if user else None)
 
     # Save the uploaded file under the job ID so the subprocess can read it.
