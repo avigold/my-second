@@ -83,7 +83,10 @@ DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 # ---------------------------------------------------------------------------
 
 _AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout", "/pricing"}
-_AUTH_EXEMPT_PREFIXES = ("/auth/lichess", "/auth/chesscom", "/auth/google", "/static/")
+_AUTH_EXEMPT_PREFIXES = (
+    "/auth/lichess", "/auth/chesscom", "/auth/google", "/static/",
+    "/api/stripe/webhook",   # called by Stripe servers, no user session
+)
 
 
 @app.before_request
@@ -269,6 +272,7 @@ def api_search():
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
+    if err := _check_plan_limit(user, "search"): return err
     out_path = str(OUTPUT_DIR / f"{params.get('side', 'white')}_ideas.pgn")
     job = registry.create("search", params, out_path=out_path, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
@@ -471,6 +475,45 @@ def _kill_job_process(job) -> None:
         pass  # already exited
 
 
+# ---------------------------------------------------------------------------
+# Plan / freemium helpers
+# ---------------------------------------------------------------------------
+
+_FREE_LIMITS: dict[str, int] = {"search": 3, "habits": 3, "repertoire": 3}
+_PRO_ONLY: set[str] = {"strategise"}
+
+
+def _effective_plan(user: dict) -> str:
+    """Admins always get pro access; otherwise look up the subscriptions table."""
+    if user.get("role") == "admin":
+        return "pro"
+    return registry.get_user_plan(user["id"])
+
+
+def _check_plan_limit(user: dict | None, command: str):
+    """Return a 402 response if the user has hit their plan limit, else None."""
+    if user is None:
+        return None  # auth gate already handled unauthenticated users
+    plan = _effective_plan(user)
+    if command in _PRO_ONLY and plan != "pro":
+        return jsonify({
+            "error": "Strategise is a Pro feature.",
+            "upgrade_url": "/pricing",
+        }), 402
+    if command in _FREE_LIMITS and plan != "pro":
+        limit = _FREE_LIMITS[command]
+        used  = registry.count_monthly_jobs(user["id"], command)
+        if used >= limit:
+            return jsonify({
+                "error": (
+                    f"Free plan: {used}/{limit} {command} analyses used this month. "
+                    "Upgrade to Pro for unlimited access."
+                ),
+                "upgrade_url": "/pricing",
+            }), 402
+    return None
+
+
 @app.post("/api/jobs/<job_id>/cancel")
 def api_cancel_job(job_id: str):
     user = get_current_user()
@@ -528,6 +571,7 @@ def api_repertoire():
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
+    if err := _check_plan_limit(user, "repertoire"): return err
     job = registry.create("repertoire", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path
@@ -628,6 +672,184 @@ def pricing_page():
     return render_template("pricing.html")
 
 
+@app.get("/account")
+def account_page():
+    user = get_current_user()
+    plan  = _effective_plan(user)
+    sub   = registry.get_subscription(user["id"])
+    usage = {
+        cmd: {
+            "used":  registry.count_monthly_jobs(user["id"], cmd),
+            "limit": None if plan == "pro" else _FREE_LIMITS.get(cmd),
+        }
+        for cmd in ("search", "habits", "repertoire", "strategise")
+    }
+    stripe_ok  = bool(os.environ.get("STRIPE_SECRET_KEY"))
+    return render_template(
+        "account.html",
+        user=user,
+        plan=plan,
+        sub=sub,
+        usage=usage,
+        stripe_ok=stripe_ok,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stripe endpoints
+# ---------------------------------------------------------------------------
+
+
+def _stripe_client():
+    import stripe as _s
+    _s.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    return _s
+
+
+@app.post("/api/stripe/create-checkout-session")
+def stripe_create_checkout():
+    sk = os.environ.get("STRIPE_SECRET_KEY")
+    price_id = os.environ.get("STRIPE_PRICE_ID")
+    if not sk or not price_id:
+        return jsonify({"error": "Stripe not configured"}), 501
+
+    user = get_current_user()
+    s = _stripe_client()
+
+    # Retrieve or create Stripe customer.
+    customer_id = registry.get_stripe_customer_id(user["id"])
+    if not customer_id:
+        customer = s.Customer.create(
+            metadata={"user_id": user["id"], "username": user["username"]},
+        )
+        customer_id = customer.id
+        # Persist immediately so webhooks can map customer → user.
+        registry.upsert_subscription(
+            user_id=user["id"],
+            stripe_customer_id=customer_id,
+            stripe_subscription_id=None,
+            plan="free",
+            status="pending",
+            current_period_end=None,
+        )
+
+    base = request.host_url.rstrip("/")
+    session = s.checkout.Session.create(
+        customer=customer_id,
+        client_reference_id=user["id"],
+        payment_method_types=["card"],
+        line_items=[{"price": price_id, "quantity": 1}],
+        mode="subscription",
+        success_url=f"{base}/account?stripe=success",
+        cancel_url=f"{base}/account",
+    )
+    return jsonify({"url": session.url})
+
+
+@app.post("/api/stripe/create-portal-session")
+def stripe_create_portal():
+    sk = os.environ.get("STRIPE_SECRET_KEY")
+    if not sk:
+        return jsonify({"error": "Stripe not configured"}), 501
+
+    user = get_current_user()
+    customer_id = registry.get_stripe_customer_id(user["id"])
+    if not customer_id:
+        return jsonify({"error": "No billing record found"}), 404
+
+    s = _stripe_client()
+    base = request.host_url.rstrip("/")
+    portal = s.billing_portal.Session.create(
+        customer=customer_id,
+        return_url=f"{base}/account",
+    )
+    return jsonify({"url": portal.url})
+
+
+@app.post("/api/stripe/webhook")
+def stripe_webhook():
+    sk = os.environ.get("STRIPE_SECRET_KEY")
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
+    if not sk:
+        return "Stripe not configured", 501
+
+    s = _stripe_client()
+    payload    = request.get_data()
+    sig_header = request.headers.get("Stripe-Signature", "")
+
+    try:
+        event = s.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except ValueError:
+        return "Invalid payload", 400
+    except s.error.SignatureVerificationError:
+        return "Invalid signature", 400
+
+    _handle_stripe_event(event)
+    return jsonify({"received": True})
+
+
+def _handle_stripe_event(event: dict) -> None:
+    from datetime import timezone as _tz
+    etype = event["type"]
+    obj   = event["data"]["object"]
+
+    if etype == "checkout.session.completed":
+        user_id     = obj.get("client_reference_id")
+        customer_id = obj.get("customer")
+        sub_id      = obj.get("subscription")
+        if user_id and customer_id:
+            registry.upsert_subscription(
+                user_id=user_id,
+                stripe_customer_id=customer_id,
+                stripe_subscription_id=sub_id,
+                plan="pro",
+                status="active",
+                current_period_end=None,
+            )
+
+    elif etype in (
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    ):
+        sub         = obj
+        customer_id = sub["customer"]
+        sub_id      = sub["id"]
+        status      = sub["status"]
+        plan        = "pro" if (
+            status in ("active", "trialing")
+            and etype != "customer.subscription.deleted"
+        ) else "free"
+        period_ts   = sub.get("current_period_end")
+        period_end  = (
+            datetime.fromtimestamp(period_ts, tz=_tz.utc) if period_ts else None
+        )
+        user_id = registry.get_user_id_by_stripe_customer(customer_id)
+        if user_id:
+            registry.upsert_subscription(
+                user_id=user_id,
+                stripe_customer_id=customer_id,
+                stripe_subscription_id=sub_id,
+                plan=plan,
+                status=status,
+                current_period_end=period_end,
+            )
+
+    elif etype == "invoice.payment_failed":
+        customer_id = obj["customer"]
+        sub_id      = obj.get("subscription")
+        user_id     = registry.get_user_id_by_stripe_customer(customer_id)
+        if user_id:
+            registry.upsert_subscription(
+                user_id=user_id,
+                stripe_customer_id=customer_id,
+                stripe_subscription_id=sub_id,
+                plan="free",
+                status="past_due",
+                current_period_end=None,
+            )
+
+
 @app.get("/import-pgn")
 def import_pgn_page():
     return render_template("import.html")
@@ -641,6 +863,7 @@ def api_habits():
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
+    if err := _check_plan_limit(user, "habits"): return err
     job = registry.create("habits", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path
@@ -673,6 +896,7 @@ def api_strategise():
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
+    if err := _check_plan_limit(user, "strategise"): return err
     job = registry.create("strategise", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.json")
     job.out_path = out_path

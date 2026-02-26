@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}mysecond — Account{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <div class="flex items-center gap-4 mb-8">
+    <div style="width:52px;height:52px;border-radius:50%;
+                background:#1f2937;border:1px solid #374151;
+                display:flex;align-items:center;justify-content:center;
+                font-size:20px;font-weight:700;color:#9ca3af;flex-shrink:0;">
+      {{ user.username[0].upper() }}
+    </div>
+    <div>
+      <h1 class="text-2xl font-bold text-white">{{ user.username }}</h1>
+      <p class="text-gray-500 text-sm">
+        {% if plan == 'pro' %}
+          <span style="color:#f59e0b;font-weight:600;">● Pro</span>
+        {% else %}
+          <span style="color:#6b7280;">● Free plan</span>
+        {% endif %}
+      </p>
+    </div>
+  </div>
+
+
+  <!-- ── Plan card ───────────────────────────────────────────────────────── -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-semibold text-white">Subscription</h2>
+      {% if plan == 'pro' %}
+        <span style="background:rgba(245,158,11,0.15);color:#f59e0b;
+                     font-size:0.7rem;font-weight:700;text-transform:uppercase;
+                     letter-spacing:.07em;padding:0.2rem 0.6rem;border-radius:9999px;
+                     border:1px solid rgba(245,158,11,0.3);">Pro</span>
+      {% else %}
+        <span style="background:#1f2937;color:#9ca3af;
+                     font-size:0.7rem;font-weight:600;text-transform:uppercase;
+                     letter-spacing:.07em;padding:0.2rem 0.6rem;border-radius:9999px;
+                     border:1px solid #374151;">Free</span>
+      {% endif %}
+    </div>
+
+    {% if plan == 'pro' %}
+      <p class="text-gray-400 text-sm mb-1">
+        You have full access to all features, including unlimited analyses and Strategise.
+      </p>
+      {% if sub and sub.current_period_end %}
+        <p class="text-gray-600 text-xs">
+          Renews {{ sub.current_period_end[:10] }}
+          {% if sub.status == 'past_due' %}
+            <span style="color:#f87171;"> — payment past due</span>
+          {% endif %}
+        </p>
+      {% endif %}
+
+      {% if stripe_ok %}
+      <div class="mt-5">
+        <button onclick="manageSubscription()"
+                class="btn-secondary text-sm">
+          Manage billing &amp; cancel
+        </button>
+      </div>
+      {% endif %}
+
+    {% else %}
+      <p class="text-gray-400 text-sm mb-5">
+        Free plan includes 3 analyses per tool per month.
+        Upgrade for unlimited access and Strategise.
+      </p>
+      {% if stripe_ok %}
+      <button onclick="startCheckout()"
+              style="display:inline-flex;align-items:center;gap:0.5rem;
+                     background:#f59e0b;color:#030712;font-weight:700;
+                     padding:0.55rem 1.5rem;border-radius:0.35rem;
+                     font-size:0.9rem;border:none;cursor:pointer;
+                     transition:background 0.15s;"
+              onmouseover="this.style.background='#fbbf24'"
+              onmouseout="this.style.background='#f59e0b'">
+        Upgrade to Pro — $9/month
+      </button>
+      {% else %}
+      <a href="/pricing" class="btn-secondary text-sm">See pricing →</a>
+      {% endif %}
+    {% endif %}
+  </div>
+
+
+  <!-- ── Monthly usage ───────────────────────────────────────────────────── -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
+    <h2 class="font-semibold text-white mb-5">This month's usage</h2>
+
+    {% set tool_labels = {
+      'search':     ('Find Novelties',      '♕'),
+      'habits':     ('Analyse Habits',      '♞'),
+      'repertoire': ('Extract Repertoire',  '♖'),
+      'strategise': ('Strategise',          '♔'),
+    } %}
+
+    <div class="space-y-5">
+    {% for cmd, info in usage.items() %}
+      {% set label, icon = tool_labels[cmd] %}
+      {% set used  = info.used %}
+      {% set limit = info.limit %}
+
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-sm text-gray-300">{{ icon }} {{ label }}</span>
+          <span class="text-xs font-mono text-gray-500">
+            {% if limit is none %}
+              {{ used }} used &nbsp;·&nbsp; <span style="color:#f59e0b;">unlimited</span>
+            {% elif cmd == 'strategise' and plan != 'pro' %}
+              <span style="color:#6b7280;">Pro only</span>
+            {% else %}
+              {{ used }} / {{ limit }}
+            {% endif %}
+          </span>
+        </div>
+
+        {% if limit is not none and cmd != 'strategise' %}
+          {% set pct = [((used / limit) * 100)|int, 100]|min %}
+          <div style="background:#1f2937;border-radius:9999px;height:5px;overflow:hidden;">
+            <div style="height:5px;border-radius:9999px;width:{{ pct }}%;
+                        background:{% if pct >= 100 %}#f87171{% elif pct >= 67 %}#fbbf24{% else %}#4ade80{% endif %};
+                        transition:width 0.4s ease;"></div>
+          </div>
+        {% elif cmd == 'strategise' and plan != 'pro' %}
+          <div style="background:#1f2937;border-radius:9999px;height:5px;">
+            <div style="height:5px;border-radius:9999px;width:100%;
+                        background:#374151;"></div>
+          </div>
+        {% else %}
+          <!-- Pro: no bar for unlimited -->
+          <div style="background:#1f2937;border-radius:9999px;height:5px;">
+            <div style="height:5px;border-radius:9999px;width:100%;
+                        background:rgba(245,158,11,0.25);"></div>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+    </div>
+
+    <p class="text-xs text-gray-600 mt-5">
+      Counts reset on the 1st of each month. Only completed (done) analyses count toward limits.
+    </p>
+  </div>
+
+
+  <!-- ── Danger zone ─────────────────────────────────────────────────────── -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+    <h2 class="font-semibold text-white mb-3">Session</h2>
+    <a href="/auth/logout"
+       class="btn-secondary text-sm"
+       style="color:#f87171;border-color:#7f1d1d;">
+      Sign out
+    </a>
+  </div>
+
+</div>
+
+<!-- Stripe success banner -->
+{% if request.args.get('stripe') == 'success' %}
+<div id="stripe-banner"
+     style="position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);
+            background:#065f46;border:1px solid #059669;color:#d1fae5;
+            padding:0.75rem 1.5rem;border-radius:0.5rem;font-size:0.9rem;
+            font-weight:600;z-index:1000;box-shadow:0 4px 20px rgba(0,0,0,0.4);">
+  ✓ Subscription activated — welcome to Pro!
+  <button onclick="document.getElementById('stripe-banner').remove()"
+          style="margin-left:1rem;background:none;border:none;color:#6ee7b7;
+                 cursor:pointer;font-size:1rem;line-height:1;">✕</button>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function startCheckout() {
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  btn.textContent = 'Redirecting…';
+  try {
+    const res  = await fetch('/api/stripe/create-checkout-session', { method: 'POST' });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      alert(data.error || 'Something went wrong. Please try again.');
+      btn.disabled = false;
+      btn.textContent = 'Upgrade to Pro — $9/month';
+    }
+  } catch {
+    alert('Network error. Please try again.');
+    btn.disabled = false;
+    btn.textContent = 'Upgrade to Pro — $9/month';
+  }
+}
+
+async function manageSubscription() {
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  btn.textContent = 'Loading portal…';
+  try {
+    const res  = await fetch('/api/stripe/create-portal-session', { method: 'POST' });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      alert(data.error || 'Something went wrong. Please try again.');
+      btn.disabled = false;
+      btn.textContent = 'Manage billing & cancel';
+    }
+  } catch {
+    alert('Network error. Please try again.');
+    btn.disabled = false;
+    btn.textContent = 'Manage billing & cancel';
+  }
+}
+</script>
+{% endblock %}

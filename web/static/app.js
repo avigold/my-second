@@ -38,13 +38,20 @@ document.querySelectorAll('form[data-api]').forEach(form => {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || `Server error ${res.status}`);
+        const err = new Error(data.error || `Server error ${res.status}`);
+        err.upgradeUrl = data.upgrade_url || null;
+        throw err;
       }
 
       window.location.href = `/jobs/${data.job_id}`;
     } catch (err) {
       if (errorEl) {
-        errorEl.textContent = `Error: ${err.message}`;
+        if (err.upgradeUrl) {
+          errorEl.innerHTML =
+            `${err.message} <a href="${err.upgradeUrl}" style="color:#f59e0b;text-decoration:underline;">Upgrade →</a>`;
+        } else {
+          errorEl.textContent = `Error: ${err.message}`;
+        }
         errorEl.classList.remove('hidden');
       }
       submitBtn.disabled = false;

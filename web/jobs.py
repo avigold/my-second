@@ -56,6 +56,16 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE INDEX IF NOT EXISTS jobs_started_at_idx ON jobs (started_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_user_id_idx    ON jobs (user_id);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+    user_id                UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    stripe_customer_id     TEXT UNIQUE,
+    stripe_subscription_id TEXT UNIQUE,
+    plan                   TEXT NOT NULL DEFAULT 'free',
+    status                 TEXT NOT NULL DEFAULT 'active',
+    current_period_end     TIMESTAMPTZ,
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 """
 
 
@@ -224,6 +234,115 @@ class JobRegistry:
             cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
             conn.commit()
         return True
+
+    # ------------------------------------------------------------------
+    # Subscription / plan methods
+    # ------------------------------------------------------------------
+
+    def get_user_plan(self, user_id: str) -> str:
+        """Return 'pro' if user has an active Pro subscription, else 'free'.
+        Admins always get 'pro' (caller must pass role separately)."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT plan, status FROM subscriptions WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return "free"
+        plan, status = row
+        if plan == "pro" and status in ("active", "trialing"):
+            return "pro"
+        return "free"
+
+    def count_monthly_jobs(self, user_id: str, command: str) -> int:
+        """Count done jobs for this user in the current calendar month."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM jobs
+                WHERE user_id = %s
+                  AND command = %s
+                  AND status  = 'done'
+                  AND started_at >= date_trunc('month', NOW())
+                """,
+                (user_id, command),
+            )
+            return cur.fetchone()[0]
+
+    def upsert_subscription(
+        self,
+        *,
+        user_id: str,
+        stripe_customer_id: str,
+        stripe_subscription_id: str | None,
+        plan: str,
+        status: str,
+        current_period_end: datetime | None,
+    ) -> None:
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO subscriptions (
+                    user_id, stripe_customer_id, stripe_subscription_id,
+                    plan, status, current_period_end, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (user_id) DO UPDATE SET
+                    stripe_customer_id     = EXCLUDED.stripe_customer_id,
+                    stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id,
+                                                      subscriptions.stripe_subscription_id),
+                    plan                   = EXCLUDED.plan,
+                    status                 = EXCLUDED.status,
+                    current_period_end     = COALESCE(EXCLUDED.current_period_end,
+                                                      subscriptions.current_period_end),
+                    updated_at             = NOW()
+                """,
+                (user_id, stripe_customer_id, stripe_subscription_id,
+                 plan, status, current_period_end),
+            )
+            conn.commit()
+
+    def get_stripe_customer_id(self, user_id: str) -> str | None:
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT stripe_customer_id FROM subscriptions WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        return row[0] if row else None
+
+    def get_user_id_by_stripe_customer(self, stripe_customer_id: str) -> str | None:
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id FROM subscriptions WHERE stripe_customer_id = %s",
+                (stripe_customer_id,),
+            )
+            row = cur.fetchone()
+        return str(row[0]) if row else None
+
+    def get_subscription(self, user_id: str) -> dict | None:
+        """Return full subscription row as dict, or None."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT stripe_customer_id, stripe_subscription_id,
+                       plan, status, current_period_end, updated_at
+                FROM subscriptions WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "stripe_customer_id":     row[0],
+            "stripe_subscription_id": row[1],
+            "plan":                   row[2],
+            "status":                 row[3],
+            "current_period_end":     row[4].isoformat() if row[4] else None,
+            "updated_at":             row[5].isoformat() if row[5] else None,
+        }
 
     def update_status(
         self,
