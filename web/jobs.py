@@ -126,7 +126,11 @@ class JobRegistry:
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
-            return self._jobs.get(job_id)
+            job = self._jobs.get(job_id)
+        if job is not None:
+            return job
+        # Fall back to DB — handles requests routed to a different gunicorn worker.
+        return self._fetch_from_db(job_id)
 
     def list_all(self) -> list[dict]:
         with self._lock:
@@ -272,6 +276,41 @@ class JobRegistry:
                 log_lines=log_text.splitlines() if log_text else [],
             )
             self._jobs[job.id] = job
+
+    def _fetch_from_db(self, job_id: str) -> Job | None:
+        """Load a single job from the DB — used when it wasn't found in memory."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, command, params, status, started_at, finished_at,
+                       out_path, exit_code, log_text, user_id
+                FROM jobs WHERE id = %s
+                """,
+                (job_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        job_id_, command, params, status, started_at, finished_at, \
+            out_path, exit_code, log_text, user_id = row
+        # Can't stream a job owned by another worker — treat as cancelled.
+        if status == "running":
+            status = "cancelled"
+        job = Job(
+            id=str(job_id_),
+            command=command,
+            params=params,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+            out_path=out_path,
+            exit_code=exit_code,
+            user_id=str(user_id) if user_id else None,
+            log_lines=log_text.splitlines() if log_text else [],
+        )
+        with self._lock:
+            self._jobs[job.id] = job  # cache it so subsequent requests are fast
+        return job
 
     def _persist(self, job: Job) -> None:
         with self._conn() as conn, conn.cursor() as cur:
