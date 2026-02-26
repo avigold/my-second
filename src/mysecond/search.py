@@ -216,6 +216,9 @@ def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
         f"  After pruning     : {len(pending)}  (top by quick eval)\n"
         f"[mysecond] ─────────────────────────────────────────────────────────"
     )
+    # Snap the walk progress to 100% of its own scale so Phase 2's eval
+    # progress isn't dragged down by an incomplete walk denominator.
+    print(f"[progress:walk] {config.max_positions}/{config.max_positions}", flush=True)
 
     # --- Phase 2: deep evaluation (parallel) ---------------------------------
     _p(f"\n[mysecond] ── Phase 2: deep evaluation ({len(pending)} candidates, "
@@ -236,6 +239,7 @@ def find_novelties(config: SearchConfig) -> list[NoveltyLine]:
                 result = future.result()
                 with _PRINT_LOCK:
                     done_count[0] += 1
+                    print(f"[progress:eval] {done_count[0]}/{total}", flush=True)
                 if result is not None:
                     results.append(result)
             except Exception as exc:  # noqa: BLE001
@@ -278,6 +282,8 @@ def _walk(
     positions_visited[0] += 1
     n = positions_visited[0]
     path = _path_str(book_moves_san)
+    if n % 10 == 0:
+        print(f"[progress:walk] {n}/{config.max_positions}", flush=True)
 
     data = explorer.get_data(fen)
     if data is None or data.total < config.min_book_games:
