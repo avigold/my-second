@@ -12,6 +12,7 @@ import chess
 from flask import (
     Flask,
     Response,
+    abort,
     jsonify,
     redirect,
     render_template,
@@ -954,6 +955,57 @@ def api_import_pgn():
     launch_job(job, argv, REPO_ROOT, registry)
     return jsonify({"job_id": job.id})
 
+
+
+# ---------------------------------------------------------------------------
+# Admin routes
+# ---------------------------------------------------------------------------
+
+_ADMIN_VALID_ROLES = {"user", "admin"} | _TITLED_ROLES
+
+
+def _require_admin():
+    user = get_current_user()
+    if not user or user.get("role") != "admin":
+        abort(403)
+    return user
+
+
+@app.get("/admin")
+def admin_page():
+    _require_admin()
+    return render_template("admin.html")
+
+
+@app.get("/api/admin/stats")
+def api_admin_stats():
+    _require_admin()
+    return jsonify(registry.admin_stats())
+
+
+@app.get("/api/admin/users")
+def api_admin_users():
+    _require_admin()
+    return jsonify(registry.list_users_with_stats())
+
+
+@app.get("/api/admin/jobs")
+def api_admin_jobs():
+    _require_admin()
+    return jsonify(registry.list_all()[:200])
+
+
+@app.post("/api/admin/users/<user_id>/role")
+def api_admin_set_role(user_id: str):
+    _require_admin()
+    data = request.get_json(force=True)
+    role = (data.get("role") or "").strip()
+    if role not in _ADMIN_VALID_ROLES:
+        return jsonify({"error": f"Invalid role '{role}'"}), 400
+    found = registry.set_user_role(user_id, role)
+    if not found:
+        return jsonify({"error": "User not found"}), 404
+    return jsonify({"status": "ok", "role": role})
 
 
 # ---------------------------------------------------------------------------

@@ -214,6 +214,80 @@ class JobRegistry:
                 for j in self._jobs.values()
             )
 
+    # ------------------------------------------------------------------
+    # Admin methods
+    # ------------------------------------------------------------------
+
+    def admin_stats(self) -> dict:
+        """Return aggregate stats for the admin dashboard."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM users")
+            total_users = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM subscriptions WHERE plan = 'pro' AND status IN ('active', 'trialing')"
+            )
+            pro_subscribers = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM jobs WHERE started_at >= date_trunc('day', NOW())"
+            )
+            jobs_today = cur.fetchone()[0]
+        with self._lock:
+            running = sum(1 for j in self._jobs.values() if j.status in ("running", "queued"))
+        return {
+            "total_users":     total_users,
+            "pro_subscribers": pro_subscribers,
+            "jobs_today":      jobs_today,
+            "running_jobs":    running,
+        }
+
+    def list_users_with_stats(self) -> list[dict]:
+        """Return all users with job counts and subscription info."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    u.id, u.username, u.role, u.created_at,
+                    CASE WHEN u.lichess_id  IS NOT NULL THEN 'lichess'
+                         WHEN u.chesscom_id IS NOT NULL THEN 'chesscom'
+                         WHEN u.google_id   IS NOT NULL THEN 'google'
+                         ELSE 'unknown' END AS platform,
+                    COALESCE(s.plan, 'free')   AS plan,
+                    COALESCE(s.status, '')      AS sub_status,
+                    COUNT(j.id)                 AS total_jobs,
+                    MAX(j.started_at)           AS last_active
+                FROM users u
+                LEFT JOIN subscriptions s ON s.user_id = u.id
+                LEFT JOIN jobs j ON j.user_id = u.id
+                GROUP BY u.id, u.username, u.role, u.created_at,
+                         u.lichess_id, u.chesscom_id, u.google_id,
+                         s.plan, s.status
+                ORDER BY last_active DESC NULLS LAST
+                """
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "id":          str(r[0]),
+                "username":    r[1],
+                "role":        r[2],
+                "created_at":  r[3].isoformat() if r[3] else None,
+                "platform":    r[4],
+                "plan":        r[5],
+                "sub_status":  r[6],
+                "total_jobs":  r[7],
+                "last_active": r[8].isoformat() if r[8] else None,
+            }
+            for r in rows
+        ]
+
+    def set_user_role(self, user_id: str, role: str) -> bool:
+        """Set the role for a user. Returns True if the user was found."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE users SET role = %s WHERE id = %s", (role, user_id))
+            updated = cur.rowcount
+            conn.commit()
+        return updated > 0
+
     def mark_cancelled(self, job_id: str) -> bool:
         """Mark a running or queued job as cancelled.
         Returns True if the job existed and was running or queued."""

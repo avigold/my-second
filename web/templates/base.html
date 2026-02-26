@@ -107,6 +107,9 @@
       <a href="/strategise" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Strategise</a>
       <a href="/jobs"       class="text-sm text-gray-300 hover:text-amber-400 transition-colors ml-auto">Job History</a>
       {% if current_user %}
+        {% if current_user.role == 'admin' %}
+        <a href="/admin" class="text-xs text-purple-400 hover:text-purple-300 transition-colors">Admin</a>
+        {% endif %}
         <a href="/account" class="text-xs text-gray-400 hover:text-amber-400 transition-colors border-l border-gray-700 pl-6">{{ current_user.username }}</a>
         <a href="/auth/logout" class="text-xs text-gray-400 hover:text-red-400 transition-colors">Log out</a>
       {% else %}
@@ -144,6 +147,9 @@
     <a href="/jobs"       class="nav-drawer-link">Job History</a>
     {% if current_user %}
     <div style="height:1px;background:#1f2937;margin:4px 0;"></div>
+    {% if current_user.role == 'admin' %}
+    <a href="/admin" class="nav-drawer-link" style="color:#c084fc;">Admin</a>
+    {% endif %}
     <a href="/account" class="nav-drawer-link">{{ current_user.username }}</a>
     <a href="/auth/logout" class="nav-drawer-link" style="color:#f87171;">Log out</a>
     {% else %}
