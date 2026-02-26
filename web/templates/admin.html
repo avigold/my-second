@@ -176,9 +176,11 @@ function roleBadge(role) {
   return `<span class="badge badge-free">${role}</span>`;
 }
 
-function planBadge(plan, sub_status) {
-  if (plan === 'pro' && ['active','trialing'].includes(sub_status))
-    return `<span class="badge badge-pro">pro</span>`;
+function planBadge(plan, sub_status, role) {
+  // Mirror _effective_plan(): admins and titled players always get pro.
+  const effectivePro = role === 'admin' || TITLED_ROLES.has(role)
+    || (plan === 'pro' && ['active', 'trialing'].includes(sub_status));
+  if (effectivePro) return `<span class="badge badge-pro">pro</span>`;
   return `<span class="badge badge-free">free</span>`;
 }
 
@@ -213,7 +215,7 @@ async function loadUsers() {
             ${ALL_ROLES.map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${r}</option>`).join('')}
           </select>
         </td>
-        <td class="px-4 py-3">${planBadge(u.plan, u.sub_status)}</td>
+        <td class="px-4 py-3">${planBadge(u.plan, u.sub_status, u.role)}</td>
         <td class="px-4 py-3 text-right font-mono text-xs text-gray-400">${u.total_jobs}</td>
         <td class="px-4 py-3 text-xs text-gray-500">${fmtDate(u.last_active)}</td>
         <td class="px-4 py-3 text-xs text-gray-600">${fmtDate(u.created_at)}</td>
