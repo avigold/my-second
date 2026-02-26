@@ -296,6 +296,16 @@ function renderHabitsPanel(habits, stats) {
   return header + rows + footer;
 }
 
+// ─── Placeholder CTA panel ────────────────────────────────────────────────
+function renderPlaceholder(icon, title, desc, href, cta) {
+  return `<div class="flex flex-col items-center justify-center text-center px-8 h-full" style="min-height:260px;">
+    <div class="text-5xl mb-4" style="opacity:0.18;">${icon}</div>
+    <h3 class="text-gray-400 font-semibold text-sm mb-2">${title}</h3>
+    <p class="text-gray-600 text-xs leading-relaxed mb-6" style="max-width:22ch;">${desc}</p>
+    <a href="${href}" class="no-underline text-xs font-semibold text-amber-400 px-4 py-2 rounded-lg border border-amber-900 hover:border-amber-600 hover:bg-amber-900/20 transition-colors">${cta}</a>
+  </div>`;
+}
+
 // ─── Render novelties panel ───────────────────────────────────────────────
 function renderNoveltyPanel(novelties) {
   if (!novelties.length) return '';
@@ -366,19 +376,23 @@ async function loadDashboard() {
     statCard(stats.total_habits,    'Habits Analysed', '#f87171') +
     statCard(stats.total_novelties, 'Novelties Found', '#4ade80');
 
-  // Habits panel
-  if (top_habits.length) {
-    const hp = document.getElementById('habits-panel');
-    hp.classList.remove('hidden');
-    hp.innerHTML = renderHabitsPanel(top_habits, stats);
-  }
+  // Habits panel — always visible; placeholder if no data yet
+  const hp = document.getElementById('habits-panel');
+  hp.classList.remove('hidden');
+  hp.innerHTML = top_habits.length
+    ? renderHabitsPanel(top_habits, stats)
+    : renderPlaceholder('♞', 'No habit analysis yet',
+        'Find positions where you consistently choose a suboptimal move — then drill the fix.',
+        '/habits', 'Analyse Habits →');
 
-  // Novelties panel
-  if (top_novelties.length) {
-    const np = document.getElementById('novelties-panel');
-    np.classList.remove('hidden');
-    np.innerHTML = renderNoveltyPanel(top_novelties);
-  }
+  // Novelties panel — always visible; placeholder if no data yet
+  const np = document.getElementById('novelties-panel');
+  np.classList.remove('hidden');
+  np.innerHTML = top_novelties.length
+    ? renderNoveltyPanel(top_novelties)
+    : renderPlaceholder('♕', 'No novelties found yet',
+        'Discover surprise weapons and rare lines to take your opponent out of prep.',
+        '/search', 'Find Novelties →');
 
   // Recent activity
   if (recent_jobs.length) {
