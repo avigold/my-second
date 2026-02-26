@@ -3,6 +3,18 @@ import Chessground from '@react-chess/chessground'
 import ReactMarkdown from 'react-markdown'
 import { Chess } from 'chess.js'
 
+function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < breakpoint
+  )
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < breakpoint)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [breakpoint])
+  return isMobile
+}
+
 // Resolve a move to { fen: postMoveFen, orig, dest }.
 // Priority: explicit fen_after > orig/dest UCI > SAN string > fallback (pre-move FEN, no highlight).
 function resolveMove(fen, fenAfter, orig, dest, moveSan) {
@@ -53,6 +65,7 @@ export default function StrategiseApp({ jobId, side }) {
   const [data,      setData]      = useState(null)
   const [error,     setError]     = useState(null)
   const [activeTab, setActiveTab] = useState('brief')
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     fetch(`/api/jobs/${jobId}/strategise`)
@@ -90,15 +103,16 @@ export default function StrategiseApp({ jobId, side }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: C.bg, color: C.textPri }}>
 
       {/* Header */}
-      <div style={{ borderBottom: `1px solid ${C.border}`, padding: '10px 20px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <PlayerPill meta={data.player}   label="You"      color={C.amber}  />
+      <div style={{ borderBottom: `1px solid ${C.border}`, padding: isMobile ? '10px 12px' : '10px 20px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    flexShrink: 0, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 16, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+          <PlayerPill meta={data.player}   label="You"      color={C.amber}  isMobile={isMobile} />
           <span style={{ color: C.textDim, fontSize: 13 }}>vs</span>
-          <PlayerPill meta={data.opponent} label="Opponent" color={C.redDim} />
+          <PlayerPill meta={data.opponent} label="Opponent" color={C.redDim} isMobile={isMobile} />
         </div>
         <a href={`/jobs/${jobId}`}
-           style={{ color: C.textDim, fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+           style={{ color: C.textDim, fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>
           ← Job log
         </a>
       </div>
@@ -121,7 +135,7 @@ export default function StrategiseApp({ jobId, side }) {
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '16px 12px' : 24 }}>
         {activeTab === 'brief'         && <BriefTab         data={data} />}
         {activeTab === 'battlegrounds' && <BattlegroundsTab data={data} />}
         {activeTab === 'weaknesses'    && <WeaknessTab      data={data} side={side} />}
@@ -132,16 +146,20 @@ export default function StrategiseApp({ jobId, side }) {
   )
 }
 
-function PlayerPill({ meta, label, color }) {
+function PlayerPill({ meta, label, color, isMobile }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
       <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#1f2937',
                     border: `1px solid ${color}40`, display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', fontSize: 12, fontWeight: 700, color }}>
+                    justifyContent: 'center', fontSize: 12, fontWeight: 700, color, flexShrink: 0 }}>
         {meta.username[0].toUpperCase()}
       </div>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color }}>{meta.username}</div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      maxWidth: isMobile ? 110 : 'none' }}>
+          {meta.username}
+        </div>
         <div style={{ fontSize: 10, color: C.textFaint }}>{label} · {meta.platform} · {meta.color}</div>
       </div>
     </div>
@@ -152,11 +170,12 @@ function PlayerPill({ meta, label, color }) {
 // Brief tab
 // ---------------------------------------------------------------------------
 function BriefTab({ data }) {
+  const isMobile = useIsMobile()
   return (
     <div style={{ maxWidth: 860, margin: '0 auto' }}>
 
       {/* Style profiles side by side */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16, marginBottom: 24 }}>
         <StyleCard profile={data.player_style}   phaseStats={data.player_phase_stats}   meta={data.player}   accentColor={C.amber}  />
         <StyleCard profile={data.opponent_style} phaseStats={data.opponent_phase_stats} meta={data.opponent} accentColor={C.redDim} />
       </div>
@@ -308,7 +327,8 @@ function BattlegroundsTab({ data }) {
       <p style={{ color: C.textSec, fontSize: 13, marginBottom: 16 }}>
         Positions where both players have cache data — direct win-rate comparison.
       </p>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 520 }}>
         <thead>
           <tr style={{ color: C.textFaint, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             <Th align="left">#</Th>
@@ -359,6 +379,7 @@ function BattlegroundsTab({ data }) {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }
@@ -471,7 +492,8 @@ function PositionsTab({ data, side }) {
 
 function HabitTable({ items, selected, onSelect, side, playerLabel, accentColor = C.amber, extraCol }) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+    <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 420 }}>
       <thead>
         <tr style={{ color: C.textFaint, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           <Th align="left">#</Th>
@@ -522,10 +544,14 @@ function HabitTable({ items, selected, onSelect, side, playerLabel, accentColor 
         })}
       </tbody>
     </table>
+    </div>
   )
 }
 
 function MiniBoard({ fen, side, orig, dest, size = 320 }) {
+  const boardSize = typeof window !== 'undefined'
+    ? Math.min(size, window.innerWidth - 48)
+    : size
   const config = {
     fen,
     orientation: side || 'white',
@@ -535,8 +561,8 @@ function MiniBoard({ fen, side, orig, dest, size = 320 }) {
     selectable: { enabled: false },
   }
   return (
-    <div style={{ width: size, height: size }}>
-      <Chessground width={size} height={size} config={config} />
+    <div style={{ width: boardSize, height: boardSize }}>
+      <Chessground width={boardSize} height={boardSize} config={config} />
     </div>
   )
 }
