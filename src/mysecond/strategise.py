@@ -80,12 +80,12 @@ def strategise(
     opponent_index = _load_index(cache, opponent_backend)
 
     if not player_index:
-        _log(verbose, f"[strategise] No cache for {player} — fetching …")
+        _log(verbose, f"[strategise] No cache for {player} ({player_platform}, {player_color}, {player_speeds}) — fetching …")
         _fetch(player, player_color, player_platform, player_speeds, cache, verbose)
         player_index = _load_index(cache, player_backend)
 
     if not opponent_index:
-        _log(verbose, f"[strategise] No cache for {opponent} — fetching …")
+        _log(verbose, f"[strategise] No cache for {opponent} ({opponent_platform}, {opponent_color}, {opponent_speeds}) — fetching …")
         _fetch(opponent, opponent_color, opponent_platform, opponent_speeds, cache, verbose)
         opponent_index = _load_index(cache, opponent_backend)
 

@@ -208,7 +208,8 @@ function updateProgress(tag, n, m) {
   // Aggregate: overall fraction = sum(n) / sum(m) across all known sources
   let totalN = 0, totalM = 0;
   for (const s of Object.values(progressSources)) { totalN += s.n; totalM += s.m; }
-  const pct = totalM > 0 ? Math.round(Math.min(totalN / totalM, 1) * 100) : 0;
+  // Cap at 99 % — only markProgressDone() (fired on SSE "done") reaches 100 %.
+  const pct = totalM > 0 ? Math.round(Math.min(totalN / totalM, 0.99) * 100) : 0;
   document.getElementById('progress-bar').style.width = pct + '%';
   document.getElementById('progress-label').textContent = pct + '%';
 }
