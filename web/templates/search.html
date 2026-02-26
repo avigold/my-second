@@ -87,11 +87,11 @@
     <div class="mt-3 grid grid-cols-3 gap-4">
       <div>
         <label class="form-label">Max Theory Depth (plies)</label>
-        <input name="plies" type="number" class="form-input" value="25">
+        <input name="plies" type="number" class="form-input" value="20">
       </div>
       <div>
         <label class="form-label">Engine Candidates (beam)</label>
-        <input name="beam" type="number" class="form-input" value="10">
+        <input name="beam" type="number" class="form-input" value="3">
       </div>
       <div>
         <label class="form-label">Opponent Responses</label>
@@ -99,15 +99,15 @@
       </div>
       <div>
         <label class="form-label">Min Book Games</label>
-        <input name="min_book_games" type="number" class="form-input" value="5">
+        <input name="min_book_games" type="number" class="form-input" value="20">
       </div>
       <div>
         <label class="form-label">Novelty Threshold (≤ games)</label>
-        <input name="novelty_threshold" type="number" class="form-input" value="2">
+        <input name="novelty_threshold" type="number" class="form-input" value="5">
       </div>
       <div>
         <label class="form-label">Max Positions</label>
-        <input name="max_positions" type="number" class="form-input" value="800">
+        <input name="max_positions" type="number" class="form-input" value="500">
       </div>
     </div>
   </details>
@@ -118,7 +118,7 @@
     <div class="mt-3 grid grid-cols-3 gap-4">
       <div>
         <label class="form-label">Eval Depths (comma-sep)</label>
-        <input name="depths" class="form-input" value="20,24,28">
+        <input name="depths" class="form-input" value="20,24">
       </div>
       <div>
         <label class="form-label">Quick Eval Time (ms)</label>
@@ -126,7 +126,7 @@
       </div>
       <div>
         <label class="form-label">Min Eval (centipawns)</label>
-        <input name="min_eval" type="number" class="form-input" value="0">
+        <input name="min_eval" type="number" class="form-input" value="-30">
       </div>
       <div>
         <label class="form-label">Continuation Plies (PV)</label>
@@ -138,7 +138,7 @@
       </div>
       <div>
         <label class="form-label">Max Candidates</label>
-        <input name="max_candidates" type="number" class="form-input" value="200">
+        <input name="max_candidates" type="number" class="form-input" value="100">
       </div>
     </div>
   </details>
