@@ -79,7 +79,7 @@ DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 # Auth gate
 # ---------------------------------------------------------------------------
 
-_AUTH_EXEMPT_PATHS = {"/login", "/auth/logout"}
+_AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout"}
 _AUTH_EXEMPT_PREFIXES = ("/auth/lichess", "/auth/chesscom", "/auth/google", "/static/")
 
 
@@ -193,7 +193,9 @@ def _vite_tags() -> tuple[str, str]:
 
 @app.get("/")
 def index():
-    return render_template("dashboard.html")
+    if get_current_user():
+        return render_template("dashboard.html")
+    return render_template("landing.html")
 
 
 @app.get("/jobs")
