@@ -64,7 +64,7 @@ class Job:
     id: str
     command: str          # "fetch" | "search" | "habits" | "repertoire" | "strategise" | "import"
     params: dict          # form inputs that produced this job
-    status: str           # "running" | "done" | "failed" | "cancelled"
+    status: str           # "queued" | "running" | "done" | "failed" | "cancelled"
     started_at: datetime
     finished_at: datetime | None = None
     out_path: str | None = None
@@ -74,6 +74,8 @@ class Job:
     log_lines: list[str] = field(default_factory=list, repr=False)
     queue: queue.Queue    = field(default_factory=queue.Queue, repr=False)
     process: Any          = field(default=None, repr=False)
+    # Callback set by the job queue to actually launch the subprocess:
+    _launch_fn: Any       = field(default=None, repr=False)
 
     def to_dict(self) -> dict:
         return {
@@ -195,20 +197,19 @@ class JobRegistry:
         return [j.to_dict() for j in sorted(jobs, key=lambda j: j.started_at, reverse=True)]
 
     def has_running_job(self, user_id: str) -> bool:
-        """Return True if the user already has a job with status 'running'."""
+        """Return True if the user already has a running or queued job."""
         with self._lock:
             return any(
-                j.user_id == user_id and j.status == "running"
+                j.user_id == user_id and j.status in ("running", "queued")
                 for j in self._jobs.values()
             )
 
     def mark_cancelled(self, job_id: str) -> bool:
-        """Mark a running job as cancelled in memory so the reader thread
-        preserves the 'cancelled' status when the process exits.
-        Returns True if the job existed and was running."""
+        """Mark a running or queued job as cancelled.
+        Returns True if the job existed and was running or queued."""
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job.status != "running":
+            if job is None or job.status not in ("running", "queued"):
                 return False
             job.status = "cancelled"
         return True
@@ -361,3 +362,93 @@ class JobRegistry:
                 ),
             )
             conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Global job queue
+# ---------------------------------------------------------------------------
+
+class JobQueue:
+    """Limits concurrent heavy jobs to MAX_CONCURRENT across all users.
+
+    Jobs that arrive when all slots are taken are marked "queued" and
+    launched in FIFO order as slots free up.  Light jobs (fetch, import)
+    bypass the queue entirely.
+    """
+
+    HEAVY = {"search", "habits", "strategise", "repertoire"}
+    MAX_CONCURRENT = 4
+
+    def __init__(self) -> None:
+        self._sem = threading.Semaphore(self.MAX_CONCURRENT)
+        self._lock = threading.Lock()
+        self._waiting: list[str] = []   # job IDs in FIFO order
+
+    def enqueue(self, job: "Job", registry: "JobRegistry") -> None:
+        """Submit a job.  Launches immediately if a slot is free, else queues it."""
+        if job.command not in self.HEAVY:
+            if job._launch_fn:
+                job._launch_fn()
+            return
+
+        acquired = self._sem.acquire(blocking=False)
+        if acquired:
+            self._start(job, registry)
+        else:
+            with self._lock:
+                self._waiting.append(job.id)
+            with registry._lock:
+                job.status = "queued"
+
+    def queue_position(self, job_id: str) -> int | None:
+        """Return 1-based queue position, or None if not queued."""
+        with self._lock:
+            try:
+                return self._waiting.index(job_id) + 1
+            except ValueError:
+                return None
+
+    def _start(self, job: "Job", registry: "JobRegistry") -> None:
+        """Mark job running and launch it; release the slot when it finishes."""
+        with registry._lock:
+            job.status = "running"
+
+        original_launch = job._launch_fn
+
+        def _wrapped() -> None:
+            try:
+                if original_launch:
+                    original_launch()
+                import time
+                while job.status == "running":
+                    time.sleep(1)
+            finally:
+                self._sem.release()
+                self._promote_next(registry)
+
+        threading.Thread(target=_wrapped, daemon=True).start()
+
+    def _promote_next(self, registry: "JobRegistry") -> None:
+        """Start the next queued job if one exists."""
+        with self._lock:
+            if not self._waiting:
+                return
+            next_id = self._waiting.pop(0)
+
+        with registry._lock:
+            job = registry._jobs.get(next_id)
+        if job is None or job.status == "cancelled":
+            self._sem.release()
+            self._promote_next(registry)
+            return
+
+        if self._sem.acquire(blocking=False):
+            self._start(job, registry)
+
+    def remove(self, job_id: str) -> None:
+        """Remove a cancelled job from the wait list (if present)."""
+        with self._lock:
+            try:
+                self._waiting.remove(job_id)
+            except ValueError:
+                pass

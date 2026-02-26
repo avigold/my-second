@@ -104,7 +104,7 @@
       ↓ Download PGN
     </a>
     {% endif %}
-    {% if job.status == 'running' %}
+    {% if job.status in ('running', 'queued') %}
     <button id="cancel-btn" onclick="cancelJob()"
             class="btn-secondary text-sm"
             style="color:#f87171;border-color:#7f1d1d;">
@@ -388,8 +388,36 @@ if (JOB_STATUS === 'done') {
   loadHabitsSummary();
 }
 
-// Connect SSE only if job is/was running.
-if (JOB_STATUS === 'running') {
+if (JOB_STATUS === 'queued') {
+  // ── Queued: poll until job transitions to running, then reload ─────────
+  let lastPos = null;
+
+  function pollQueue() {
+    fetch(`/api/jobs/${JOB_ID}`)
+      .then(r => r.json())
+      .then(j => {
+        if (j.status === 'queued') {
+          const pos = j.queue_position;
+          if (pos !== lastPos) {
+            lastPos = pos;
+            const msg = pos ? `Waiting in queue — position #${pos}…` : 'Waiting in queue…';
+            logEl.textContent = msg + '\n';
+          }
+          setTimeout(pollQueue, 3000);
+        } else if (j.status === 'running') {
+          location.reload();
+        } else {
+          markDone(j.status);
+        }
+      })
+      .catch(() => setTimeout(pollQueue, 5000));
+  }
+
+  logEl.textContent = 'Waiting in queue…\n';
+  pollQueue();
+
+} else if (JOB_STATUS === 'running') {
+  // ── Running: stream stdout via SSE ──────────────────────────────────────
   showProgressBar();  // show bar immediately; fills in as [progress] lines arrive
   const es = new EventSource(`/api/jobs/${JOB_ID}/stream`);
 
@@ -410,8 +438,9 @@ if (JOB_STATUS === 'running') {
     appendLine('[connection lost – refresh to reconnect]');
     es.close();
   };
+
 } else {
-  // Job already finished: buffer all replayed lines, then set textContent once.
+  // ── Finished: buffer all replayed lines, then set textContent once ──────
   // Doing textContent += per-line is O(n²) and forces a reflow each time —
   // with thousands of log lines this freezes the browser.
   const replayBuf = [];

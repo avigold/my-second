@@ -89,12 +89,23 @@ def build_search_argv(params: dict, out_path: str) -> list[str]:
     return cmd
 
 
-def launch_job(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") -> None:
-    """Start a subprocess and stream its stdout into job.queue.
+def make_launch_fn(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry"):
+    """Return a zero-argument callable that starts the subprocess for job.
 
-    Merges stderr into stdout so all output appears in the log stream.
-    Runs the reader in a daemon thread so it doesn't block the server.
+    The caller (JobQueue) invokes this when a slot is available.
     """
+    def _launch() -> None:
+        _do_launch(job, argv, cwd, registry)
+    return _launch
+
+
+def launch_job(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") -> None:
+    """Immediately start a subprocess (used for light jobs that bypass the queue)."""
+    _do_launch(job, argv, cwd, registry)
+
+
+def _do_launch(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") -> None:
+    """Internal: actually spawn the subprocess and start the reader thread."""
     proc = subprocess.Popen(
         argv,
         stdout=subprocess.PIPE,

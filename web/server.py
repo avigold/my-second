@@ -40,7 +40,8 @@ from habits_parser import parse_habits
 from jobs import Job, JobRegistry
 from pgn_parser import parse_novelties
 from repertoire_parser import parse_repertoire
-from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, build_strategise_argv, launch_job
+from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, build_strategise_argv, launch_job, make_launch_fn
+from jobs import JobQueue
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -73,6 +74,7 @@ DATABASE_URL = os.environ.get(
     "postgresql://mysecond:mysecond@localhost:5433/mysecond",
 )
 registry = JobRegistry(DATABASE_URL)
+job_queue = JobQueue()
 
 DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 
@@ -273,7 +275,8 @@ def api_search():
     job.out_path = out_path  # update before subprocess starts
 
     argv = build_search_argv(params, out_path)
-    launch_job(job, argv, REPO_ROOT, registry)
+    job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
+    job_queue.enqueue(job, registry)
     return jsonify({"job_id": job.id})
 
 
@@ -372,7 +375,10 @@ def api_job(job_id: str):
     job = registry.get(job_id)
     if job is None:
         return jsonify({"error": "not found"}), 404
-    return jsonify(job.to_dict())
+    d = job.to_dict()
+    if d["status"] == "queued":
+        d["queue_position"] = job_queue.queue_position(job_id)
+    return jsonify(d)
 
 
 @app.get("/api/jobs/<job_id>/novelties")
@@ -395,6 +401,10 @@ def api_stream(job_id: str):
         return "Job not found", 404
 
     def _generate():
+        # If the job is queued, tell the client to poll and wait.
+        if job.status == "queued":
+            yield "event: queued\ndata: \n\n"
+            return
         # If the job is already finished, replay the stored lines then close.
         if job.status != "running":
             for line in job.log_lines:
@@ -441,10 +451,10 @@ def api_download(job_id: str):
 
 
 def _check_user_job_limit(user: dict | None):
-    """Return a 409 response if the user already has a running job, else None."""
+    """Return a 409 response if the user already has a running or queued job, else None."""
     if user and registry.has_running_job(user["id"]):
         return jsonify({
-            "error": "You already have a job running. "
+            "error": "You already have a job running or queued. "
                      "Wait for it to finish or cancel it before starting a new one."
         }), 409
     return None
@@ -469,11 +479,12 @@ def api_cancel_job(job_id: str):
         return jsonify({"error": "not found"}), 404
     if user and user.get("role") != "admin" and job.user_id != user["id"]:
         return jsonify({"error": "forbidden"}), 403
-    if job.status != "running":
-        return jsonify({"error": "job not running"}), 400
+    if job.status not in ("running", "queued"):
+        return jsonify({"error": "job not running or queued"}), 400
     # Mark cancelled before killing so the reader thread preserves the status.
     registry.mark_cancelled(job_id)
-    _kill_job_process(job)
+    job_queue.remove(job_id)   # no-op if not in queue; removes if queued
+    _kill_job_process(job)     # no-op if no process yet (queued)
     return jsonify({"status": "cancelled"})
 
 
@@ -482,9 +493,10 @@ def api_delete_job(job_id: str):
     job = registry.get(job_id)
     if job is None:
         return jsonify({"error": "not found"}), 404
-    # Kill the whole process group if still running.
-    if job.status == "running":
+    # Kill the whole process group if still running; dequeue if queued.
+    if job.status in ("running", "queued"):
         registry.mark_cancelled(job_id)
+        job_queue.remove(job_id)
         _kill_job_process(job)
     # Remove output file if present.
     if job.out_path:
@@ -521,7 +533,8 @@ def api_repertoire():
     job.out_path = out_path
 
     argv = build_repertoire_argv(params, out_path)
-    launch_job(job, argv, REPO_ROOT, registry)
+    job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
+    job_queue.enqueue(job, registry)
     return jsonify({"job_id": job.id})
 
 
@@ -628,7 +641,8 @@ def api_habits():
     job.out_path = out_path
 
     argv = build_habits_argv(params, out_path)
-    launch_job(job, argv, REPO_ROOT, registry)
+    job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
+    job_queue.enqueue(job, registry)
     return jsonify({"job_id": job.id})
 
 
@@ -659,7 +673,8 @@ def api_strategise():
     job.out_path = out_path
 
     argv = build_strategise_argv(params, out_path)
-    launch_job(job, argv, REPO_ROOT, registry)
+    job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
+    job_queue.enqueue(job, registry)
     return jsonify({"job_id": job.id})
 
 
