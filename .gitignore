@@ -13,19 +13,16 @@ __pycache__/
 venv/
 env/
 
-# Distribution / packaging (Python build artifacts)
+# Distribution / packaging
 dist/
 build/
-# But keep the Vite output — server has no Node.js, deploy is git pull only
-!web/static/dist/
-!web/static/dist/**
 
 # ── Node / Frontend ───────────────────────────────────────────────────────────
 node_modules/
 web/novelty-browser/node_modules/
 
-# Vite build output is committed so the server (no Node.js) can deploy via git pull.
-# Always run `npm run build` in web/novelty-browser/ before committing frontend changes.
+# Vite build output — built on the server by deploy.sh (npm ci && npm run build)
+web/static/dist/
 
 # ── Local data & runtime state ────────────────────────────────────────────────
 # SQLite databases (populated at runtime — never commit user data)
