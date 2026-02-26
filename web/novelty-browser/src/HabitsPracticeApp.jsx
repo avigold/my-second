@@ -12,6 +12,7 @@ function useIsMobile(bp = 640) {
 }
 
 export default function HabitsPracticeApp({ jobId, side }) {
+  const isMobile = useIsMobile()
   const [habits,   setHabits]   = useState(null)
   const [error,    setError]    = useState(null)
   const [index,    setIndex]    = useState(0)
@@ -58,8 +59,6 @@ export default function HabitsPracticeApp({ jobId, side }) {
   if (finished) {
     return <FinishedScreen total={habits.length} correct={correct} skipped={skipped} onRestart={restart} jobId={jobId} />
   }
-
-  const isMobile = useIsMobile()
 
   const habit = habits[index]
   const progress = {
