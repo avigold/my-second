@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /account
+Disallow: /jobs
+Disallow: /auth/
+
+Sitemap: https://mysecond.app/sitemap.xml

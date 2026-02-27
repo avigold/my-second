@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}mysecond{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}AI-powered chess analysis. Find novelties, analyse habits, extract your repertoire, and get AI preparation briefs — powered by engine analysis and Claude AI.{% endblock %}">
+  {% block meta %}{% endblock %}
+  <link rel="canonical" href="{% block canonical %}https://mysecond.app{{ request.path }}{% endblock %}">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>

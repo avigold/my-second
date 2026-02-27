@@ -87,7 +87,7 @@ DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 # Auth gate
 # ---------------------------------------------------------------------------
 
-_AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout", "/pricing", "/healthz"}
+_AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout", "/pricing", "/healthz", "/sitemap.xml"}
 _AUTH_EXEMPT_PREFIXES = (
     "/auth/lichess", "/auth/chesscom", "/auth/google", "/static/",
     "/api/stripe/webhook",   # called by Stripe servers, no user session
@@ -121,6 +121,16 @@ def inject_current_user():
 def healthz():
     """Lightweight health check — no DB, no auth. Used by monitoring and nginx."""
     return "ok", 200
+
+
+@app.get("/sitemap.xml")
+def sitemap():
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://mysecond.app/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://mysecond.app/pricing</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+</urlset>"""
+    return Response(xml, mimetype="application/xml")
 
 
 @app.get("/login")
