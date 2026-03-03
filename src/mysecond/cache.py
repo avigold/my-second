@@ -22,6 +22,7 @@ class Cache:
         self._conn = sqlite3.connect(
             str(db_path),
             check_same_thread=False,
+            timeout=60,
         )
         self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -60,6 +61,22 @@ class Cache:
                 VALUES (?, ?, ?, ?)
                 """,
                 (fen, backend, json.dumps(data), time.time()),
+            )
+            self._conn.commit()
+
+    def set_many(self, entries: list[tuple[str, str, dict[str, Any]]]) -> None:
+        """Insert or replace many entries in a single transaction.
+
+        *entries* is a list of (fen, backend, data) tuples.
+        """
+        rows = [(fen, backend, json.dumps(data), time.time()) for fen, backend, data in entries]
+        with self._lock:
+            self._conn.executemany(
+                """
+                INSERT OR REPLACE INTO explorer_cache (fen, backend, payload, ts)
+                VALUES (?, ?, ?, ?)
+                """,
+                rows,
             )
             self._conn.commit()
 

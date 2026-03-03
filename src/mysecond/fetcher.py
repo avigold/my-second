@@ -527,14 +527,24 @@ def _store_book(
 
     In *merge* mode new counts are added to existing entries (for incremental
     updates).  In full mode existing entries are replaced.
+    All writes are batched into a single transaction.
     """
+    if merge:
+        # Load all existing entries for this backend once, merge in memory.
+        existing_map = dict(cache.scan_backend(backend))
+    else:
+        existing_map = {}
+
+    entries: list[tuple[str, str, dict[str, Any]]] = []
     for fen, pos in book.items():
         payload = _to_payload(pos)
         if merge:
-            existing = cache.get(fen, backend)
+            existing = existing_map.get(fen)
             if existing is not None:
                 payload = _merge_payloads(existing, payload)
-        cache.set(fen, backend, payload)
+        entries.append((fen, backend, payload))
+
+    cache.set_many(entries)
 
 
 def _to_payload(pos: dict[str, Any]) -> dict[str, Any]:
