@@ -17,7 +17,7 @@ function useStockfish() {
   useEffect(() => {
     let worker
     try {
-      worker = new Worker('/static/stockfish.js')
+      worker = new Worker('/static/stockfish.js?v=18s')
     } catch (_) {
       return
     }
