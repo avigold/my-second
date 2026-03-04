@@ -10,33 +10,49 @@ import { Chess } from 'chess.js'
 
 function useStockfish() {
   const workerRef  = useRef(null)
-  const pendingRef = useRef({})  // multipv index → latest info; reset on each analyse()
-  const [lines, setLines] = useState([])   // [{multipv, score, pv}]
-  const fenRef     = useRef(null)
+  const pendingRef = useRef({})   // multipv → latest parsed line
+  const fenRef     = useRef(null) // FEN currently being searched
+  const nextFenRef = useRef(null) // FEN queued for after readyok
+  const [lines, setLines] = useState([])
 
-  useEffect(() => {
+  // Create (or recreate) the Worker.  Called on mount and after crashes.
+  const startWorker = useCallback(() => {
+    workerRef.current?.terminate()
+    workerRef.current = null
+
     let worker
-    try {
-      worker = new Worker('/static/stockfish.js?v=18s')
-    } catch (_) {
-      return
-    }
+    try { worker = new Worker('/static/stockfish.js?v=18s') } catch (_) { return }
 
     worker.onmessage = ({ data }) => {
       const msg = typeof data === 'string' ? data : String(data)
+
+      // Engine finished stopping — now safe to send new position.
+      if (msg === 'readyok') {
+        const fen = nextFenRef.current
+        nextFenRef.current = null
+        if (fen) {
+          fenRef.current = fen
+          pendingRef.current = {}
+          setLines([])
+          worker.postMessage(`position fen ${fen}`)
+          worker.postMessage('go depth 20 multipv 3')
+        }
+        return
+      }
+
       if (!msg.startsWith('info depth')) return
 
       // Parse: info depth N seldepth X multipv M score cp V pv uci...
-      const depthM  = msg.match(/depth (\d+)/)
-      const mpvM    = msg.match(/multipv (\d+)/)
-      const cpM     = msg.match(/score cp (-?\d+)/)
-      const mateM   = msg.match(/score mate (-?\d+)/)
-      const pvM     = msg.match(/ pv (.+)$/)
+      const depthM = msg.match(/depth (\d+)/)
+      const mpvM   = msg.match(/multipv (\d+)/)
+      const cpM    = msg.match(/score cp (-?\d+)/)
+      const mateM  = msg.match(/score mate (-?\d+)/)
+      const pvM    = msg.match(/ pv (.+)$/)
 
       if (!mpvM || !pvM) return
-      const depth  = depthM  ? parseInt(depthM[1])  : 0
-      const mpv    = parseInt(mpvM[1])
-      const pvUCI  = pvM[1].trim().split(' ')
+      const depth = depthM ? parseInt(depthM[1]) : 0
+      const mpv   = parseInt(mpvM[1])
+      const pvUCI = pvM[1].trim().split(' ')
 
       let scoreStr = '0.00'
       if (mateM) {
@@ -59,39 +75,41 @@ function useStockfish() {
           const prom = uci.length === 5 ? uci[4] : undefined
           const move = ch.move({ from, to, promotion: prom })
           if (!move) break
-          const mn = ch.moveNumber()
-          const isWhitePrev = move.color === 'w'
-          if (isWhitePrev) parts.push(`${mn}.${move.san}`)
-          else             parts.push(move.san)
+          if (move.color === 'w') parts.push(`${ch.moveNumber()}.${move.san}`)
+          else                    parts.push(move.san)
         }
         pvSAN = parts.join(' ')
       } catch (_) {}
 
       pendingRef.current[mpv] = { depth, score: scoreStr, pv: pvSAN, mpv }
-
-      // Publish all lines sorted by multipv index
-      const updated = Object.values(pendingRef.current).sort((a, b) => a.mpv - b.mpv)
-      setLines([...updated])
+      setLines(Object.values(pendingRef.current).sort((a, b) => a.mpv - b.mpv))
     }
+
+    // If the WASM engine crashes, clear the ref so analyse() restarts it.
+    worker.onerror = () => { workerRef.current = null }
 
     worker.postMessage('uci')
     worker.postMessage('setoption name MultiPV value 3')
     worker.postMessage('isready')
     workerRef.current = worker
-
-    return () => worker.terminate()
   }, [])
+
+  useEffect(() => {
+    startWorker()
+    return () => { workerRef.current?.terminate(); workerRef.current = null }
+  }, [startWorker])
 
   const analyse = useCallback((fen) => {
+    // Auto-restart if the engine crashed.
+    if (!workerRef.current) startWorker()
     const w = workerRef.current
     if (!w) return
-    fenRef.current = fen
-    pendingRef.current = {}  // clear stale lines from previous position
+
+    // Queue the FEN; it will be dispatched after the engine acknowledges stop.
+    nextFenRef.current = fen
     w.postMessage('stop')
-    setLines([])
-    w.postMessage(`position fen ${fen}`)
-    w.postMessage('go depth 20 multipv 3')
-  }, [])
+    w.postMessage('isready')  // readyok fires when stop is processed → position + go sent
+  }, [startWorker])
 
   const stop = useCallback(() => {
     workerRef.current?.postMessage('stop')
@@ -405,12 +423,15 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
       .catch(() => setLoading(false))
   }, [jobId, selectedIndex])
 
-  // Trigger engine analysis when ply or game changes
+  // Debounce engine analysis — board updates immediately on every ply change,
+  // but we only ask Stockfish to search after the user pauses navigation.
+  const enginePly = useDebounce(ply, 300)
+
   useEffect(() => {
     if (!gameData?.moves) return
-    const fen = gameData.moves[ply]?.fen
+    const fen = gameData.moves[enginePly]?.fen
     if (fen) analyse(fen)
-  }, [ply, gameData, analyse])
+  }, [enginePly, gameData, analyse])
 
   // Keyboard navigation
   useEffect(() => {
