@@ -157,10 +157,20 @@ def strategise(
     _log(verbose, f"[strategise] {len(prep_gaps)} player prep gaps identified.")
     _progress(verbose, "step", 8, 10)   # all structural analysis done (~96%)
 
-    # ── 7. Key positions ─────────────────────────────────────────────────────
+    # ── 7. Annotate entries with decoded move sequences ───────────────────────
+    _log(verbose, "[strategise] Decoding opening paths …")
+    player_path_map = _build_path_map(player_index, player_color)
+    for bg in battlegrounds:
+        bg["move_sequence"] = player_path_map.get(bg["fen"], "")
+    for w in opponent_weaknesses:
+        w["move_sequence"] = player_path_map.get(w["fen"], "")
+    for g in prep_gaps:
+        g["move_sequence"] = player_path_map.get(g["fen"], "")
+
+    # ── 8. Key positions ─────────────────────────────────────────────────────
     key_positions = _key_positions(battlegrounds, opponent_weaknesses, prep_gaps)
 
-    # ── 8. Claude API ────────────────────────────────────────────────────────
+    # ── 9. Claude API ────────────────────────────────────────────────────────
     strategic_brief = ""
     ai_available    = False
     if anthropic_api_key:
@@ -254,60 +264,62 @@ def _fetch(username: str, color: str, platform: str, speeds: str,
 # ---------------------------------------------------------------------------
 
 
-def _build_opening_lines(
+def _to_pgn(sans: list[str]) -> str:
+    """Convert a flat list of SAN moves to PGN notation ("1.e4 c5 2.Nf3 d6")."""
+    parts: list[str] = []
+    for i, san in enumerate(sans):
+        if i % 2 == 0:
+            parts.append(f"{i // 2 + 1}.{san}")
+        else:
+            parts.append(san)
+    return " ".join(parts)
+
+
+def _build_path_map(
     cache_index: dict[str, dict[str, Any]],
     color: str,
-    top_n: int = 10,
-) -> list[dict[str, Any]]:
-    """BFS from the starting position through the cache to decode opening move sequences.
+    max_depth: int = 24,
+    max_nodes: int = 20_000,
+) -> dict[str, str]:
+    """BFS from the start position; returns {fen: pgn_string} for all reachable FENs.
 
-    Returns a list of dicts sorted by game count::
-
-        {"move_sequence": "1.e4 c5 2.Nf3 d6", "games": 420, "win_rate": 0.52, "fen": "..."}
-
-    The BFS alternates between:
-    - Player's positions (from cache): expand the top player moves.
-    - Opponent's positions: try every legal move and keep only those that land
-      in a cached player position (very selective, fast in practice).
+    Follows the player's top-4 moves from cached positions and every legal
+    opponent reply that lands in the cache.  Both player-to-move and
+    opponent-to-move FENs are mapped so callers can look up any position
+    (battleground, weakness, gap) by its FEN.
     """
     if not cache_index:
-        return []
+        return {}
 
     player_chess = chess.WHITE if color == "white" else chess.BLACK
     start_board  = chess.Board()
     start_fen    = start_board.fen()
 
-    # Early-exit for white player if the root isn't in the cache.
     if player_chess == chess.WHITE and start_fen not in cache_index:
-        return []
+        return {}
 
-    # path[fen] = ordered list of SAN strings from move 1
-    # e.g. ["e4", "c5", "Nf3", "d6"]  →  "1.e4 c5 2.Nf3 d6"
-    path: dict[str, list[str]] = {}
+    # path_sans[fen] = list of SAN strings leading to that FEN from the start
+    path_sans: dict[str, list[str]] = {}
 
-    queue: deque[tuple[chess.Board, list[str]]] = deque([(start_board.copy(), [])])
+    queue:   deque[tuple[chess.Board, list[str]]] = deque([(start_board.copy(), [])])
     visited: set[str] = {start_fen}
-    max_nodes = 5_000
 
     while queue and len(visited) < max_nodes:
         board, sans = queue.popleft()
 
-        if len(sans) >= 12:            # cap at ~6 full moves
+        if len(sans) >= max_depth:
             continue
 
         fen = board.fen()
 
         if board.turn == player_chess:
-            # Player's position — use the cache.
             payload = cache_index.get(fen)
             if payload is None:
                 continue
 
-            # Record the path to this position (skip the root itself).
             if sans:
-                path[fen] = sans[:]
+                path_sans[fen] = sans[:]
 
-            # Expand the player's top moves (up to 4).
             top_moves = sorted(
                 payload.get("moves", []),
                 key=lambda m: -(m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)),
@@ -318,45 +330,54 @@ def _build_opening_lines(
                 if not uci:
                     continue
                 try:
-                    move = chess.Move.from_uci(uci)
-                    san  = board.san(move)
-                    after = board.copy()
+                    move     = chess.Move.from_uci(uci)
+                    san      = board.san(move)
+                    after    = board.copy()
                     after.push(move)
                     next_fen = after.fen()
                 except Exception:
                     continue
 
                 if next_fen not in visited:
+                    new_sans = sans + [san]
                     visited.add(next_fen)
-                    queue.append((after, sans + [san]))
+                    path_sans[next_fen] = new_sans   # also record after-player-move FEN
+                    queue.append((after, new_sans))
 
         else:
-            # Opponent's position — enumerate all legal moves and keep only
-            # those that lead to a cached player position.
             for opp_move in board.legal_moves:
                 try:
-                    opp_san = board.san(opp_move)
-                    after   = board.copy()
+                    opp_san  = board.san(opp_move)
+                    after    = board.copy()
                     after.push(opp_move)
                     next_fen = after.fen()
                 except Exception:
                     continue
 
                 if next_fen not in visited and next_fen in cache_index:
+                    new_sans = sans + [opp_san]
                     visited.add(next_fen)
-                    queue.append((after, sans + [opp_san]))
+                    path_sans[next_fen] = new_sans
+                    queue.append((after, new_sans))
 
-    # Helper: convert ordered SAN list to PGN notation "1.e4 c5 2.Nf3 d6"
-    def _to_pgn(sans: list[str]) -> str:
-        parts: list[str] = []
-        for i, san in enumerate(sans):
-            if i % 2 == 0:
-                parts.append(f"{i // 2 + 1}.{san}")
-            else:
-                parts.append(san)
-        return " ".join(parts)
+    return {fen: _to_pgn(s) for fen, s in path_sans.items() if s}
 
-    # Pick the top_n positions by game count, build output.
+
+def _build_opening_lines(
+    cache_index: dict[str, dict[str, Any]],
+    color: str,
+    top_n: int = 10,
+    path_map: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Return the top-N opening lines by game count with decoded move sequences."""
+    if not cache_index:
+        return []
+
+    if path_map is None:
+        path_map = _build_path_map(cache_index, color)
+
+    player_chess = chess.WHITE if color == "white" else chess.BLACK
+
     top_fens = sorted(
         cache_index.items(),
         key=lambda kv: -(kv[1].get("white", 0) + kv[1].get("draws", 0) + kv[1].get("black", 0)),
@@ -366,27 +387,30 @@ def _build_opening_lines(
     seen_seqs: set[str] = set()
 
     for fen, payload in top_fens:
-        if fen not in path or not path[fen]:
-            continue
-
-        pgn = _to_pgn(path[fen])
+        pgn = path_map.get(fen, "")
         if not pgn or pgn in seen_seqs:
             continue
+
+        # Only player-to-move positions in top_openings.
+        try:
+            if chess.Board(fen).turn != player_chess:
+                continue
+        except Exception:
+            continue
+
         seen_seqs.add(pgn)
 
         g     = payload.get("white", 0) + payload.get("draws", 0) + payload.get("black", 0)
         w_cnt = payload.get("white", 0) if color == "white" else payload.get("black", 0)
 
-        # Best next move from this position
         top_move_san = ""
         moves = payload.get("moves", [])
         if moves:
             top_m = max(moves, key=lambda m: m.get("white", 0) + m.get("draws", 0) + m.get("black", 0))
-            uci = top_m.get("uci", "")
+            uci   = top_m.get("uci", "")
             if uci:
                 try:
-                    board_tmp = chess.Board(fen)
-                    top_move_san = board_tmp.san(chess.Move.from_uci(uci))
+                    top_move_san = chess.Board(fen).san(chess.Move.from_uci(uci))
                 except Exception:
                     top_move_san = uci
 
@@ -704,43 +728,56 @@ def _key_positions(
     opponent_weaknesses: list[dict],
     prep_gaps: list[dict],
 ) -> list[dict[str, Any]]:
-    """Pick the 5 most important positions across all categories."""
+    """Pick the top 8 most important lines across all categories."""
     picks: list[dict[str, Any]] = []
 
-    for bg in battlegrounds[:2]:
+    for bg in battlegrounds[:3]:
         picks.append({
-            "fen":       bg["fen"],
-            "fen_after": bg.get("fen_after", ""),
-            "label":     f"Battleground: player {bg['player_win_rate']:.0%} vs opp {bg['opponent_win_rate']:.0%}",
-            "type":      "battleground",
-            "move_san":  bg.get("player_top_move_san", ""),
-            "move_orig": bg.get("player_top_move_orig", ""),
-            "move_dest": bg.get("player_top_move_dest", ""),
+            "fen":            bg["fen"],
+            "fen_after":      bg.get("fen_after", ""),
+            "move_sequence":  bg.get("move_sequence", ""),
+            "label":          f"Battleground — you {bg['player_win_rate']:.0%} vs opp {bg['opponent_win_rate']:.0%}",
+            "type":           "battleground",
+            "move_san":       bg.get("player_top_move_san", ""),
+            "move_orig":      bg.get("player_top_move_orig", ""),
+            "move_dest":      bg.get("player_top_move_dest", ""),
+            "advantage":      bg.get("advantage", "equal"),
+            "player_win_rate":   bg.get("player_win_rate", 0.0),
+            "opponent_win_rate": bg.get("opponent_win_rate", 0.0),
+            "opp_response_san":  bg.get("opponent_top_response_san", ""),
         })
 
-    for w in opponent_weaknesses[:2]:
+    for w in opponent_weaknesses[:3]:
         picks.append({
-            "fen":       w["fen"],
-            "fen_after": w.get("fen_after", ""),
-            "label":     f"Opponent weakness: {w['player_move_san']} (gap {w['eval_gap_cp']:+.0f}cp)",
-            "type":      "weakness",
-            "move_san":  w.get("player_move_san", ""),
-            "move_orig": w.get("player_move_orig", ""),
-            "move_dest": w.get("player_move_dest", ""),
+            "fen":            w["fen"],
+            "fen_after":      w.get("fen_after", ""),
+            "move_sequence":  w.get("move_sequence", ""),
+            "label":          f"Their weakness — {w['player_move_san']} (gap {w['eval_gap_cp']:+.0f}cp)",
+            "type":           "weakness",
+            "move_san":       w.get("player_move_san", ""),
+            "move_orig":      w.get("player_move_orig", ""),
+            "move_dest":      w.get("player_move_dest", ""),
+            "eval_gap_cp":    w.get("eval_gap_cp", 0),
+            "best_move_san":  w.get("best_move_san", ""),
+            "total_games":    w.get("total_games", 0),
         })
 
-    for g in prep_gaps[:1]:
+    for g in prep_gaps[:2]:
         picks.append({
-            "fen":       g["fen"],
-            "fen_after": g.get("fen_after", ""),
-            "label":     f"Prep gap: your {g['player_move_san']} (gap {g['eval_gap_cp']:+.0f}cp)",
-            "type":      "gap",
-            "move_san":  g.get("player_move_san", ""),
-            "move_orig": g.get("player_move_orig", ""),
-            "move_dest": g.get("player_move_dest", ""),
+            "fen":            g["fen"],
+            "fen_after":      g.get("fen_after", ""),
+            "move_sequence":  g.get("move_sequence", ""),
+            "label":          f"Your gap — {g['player_move_san']} (gap {g['eval_gap_cp']:+.0f}cp)",
+            "type":           "gap",
+            "move_san":       g.get("player_move_san", ""),
+            "move_orig":      g.get("player_move_orig", ""),
+            "move_dest":      g.get("player_move_dest", ""),
+            "eval_gap_cp":    g.get("eval_gap_cp", 0),
+            "best_move_san":  g.get("best_move_san", ""),
+            "total_games":    g.get("total_games", 0),
         })
 
-    return picks[:5]
+    return picks[:8]
 
 
 # ---------------------------------------------------------------------------

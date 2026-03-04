@@ -96,7 +96,7 @@ export default function StrategiseApp({ jobId, side }) {
     { id: 'battlegrounds',label: 'Battlegrounds'   },
     { id: 'weaknesses',   label: 'Their Weaknesses' },
     { id: 'gaps',         label: 'Your Gaps'        },
-    { id: 'positions',    label: 'Key Positions'    },
+    { id: 'lines',        label: 'Key Lines'        },
   ]
 
   return (
@@ -149,7 +149,7 @@ export default function StrategiseApp({ jobId, side }) {
         {activeTab === 'battlegrounds' && <BattlegroundsTab data={data} />}
         {activeTab === 'weaknesses'    && <WeaknessTab      data={data} side={side} />}
         {activeTab === 'gaps'          && <GapsTab          data={data} side={side} />}
-        {activeTab === 'positions'     && <PositionsTab     data={data} side={side} />}
+        {activeTab === 'lines'         && <LinesTab         data={data} side={side} />}
       </div>
     </div>
   )
@@ -437,63 +437,226 @@ function GapsTab({ data, side }) {
 }
 
 // ---------------------------------------------------------------------------
-// Key Positions tab
+// Key Lines tab — helpers
 // ---------------------------------------------------------------------------
-function PositionsTab({ data, side }) {
-  const [selected, setSelected] = useState(0)
-  const positions = data.key_positions
 
-  if (!positions.length) return <EmptyState msg="No key positions identified." />
+function parseSANMoves(pgn) {
+  if (!pgn) return []
+  return pgn.split(/\s+/)
+    .map(t => t.replace(/^\d+\./, ''))
+    .filter(t => /^[a-zA-Z]/.test(t))
+}
 
-  const typeColor = t => t === 'battleground' ? C.blue : t === 'weakness' ? C.amber : C.redDim
+function fenAtStep(moves, step) {
+  // step = number of moves played from the start (0 = starting position)
+  try {
+    const ch = new Chess()
+    const end = Math.min(step, moves.length)
+    for (let i = 0; i < end; i++) ch.move(moves[i])
+    return ch.fen()
+  } catch {
+    return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+  }
+}
+
+function lastMoveAtStep(moves, step) {
+  if (step <= 0 || !moves.length) return { orig: null, dest: null }
+  const idx = Math.min(step, moves.length) - 1
+  try {
+    const ch = new Chess()
+    for (let i = 0; i < idx; i++) ch.move(moves[i])
+    const m = ch.move(moves[idx])
+    if (m) return { orig: m.from, dest: m.to }
+  } catch {}
+  return { orig: null, dest: null }
+}
+
+function typeColor(t) {
+  return t === 'battleground' ? C.blue : t === 'weakness' ? C.amber : C.redDim
+}
+
+function TypeBadge({ type }) {
+  const color = typeColor(type)
+  const icon  = type === 'battleground' ? '⚔' : type === 'weakness' ? '⚡' : '⚠'
+  const label = type === 'battleground' ? 'Battleground' : type === 'weakness' ? 'Weakness' : 'Gap'
+  return (
+    <span style={{
+      fontSize: 10, color, background: `${color}18`,
+      border: `1px solid ${color}40`, borderRadius: 99, padding: '2px 8px',
+      textTransform: 'uppercase', letterSpacing: '0.06em',
+    }}>
+      {icon} {label}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Key Lines tab
+// ---------------------------------------------------------------------------
+function LinesTab({ data, side }) {
+  const isMobile = useIsMobile()
+  const lines = data.key_positions || []
+  const [selectedIdx, setSelectedIdx] = useState(0)
+  const [moveStep,    setMoveStep]    = useState(null)  // null = show final position
+
+  if (!lines.length) return <EmptyState msg="No key lines identified." />
+
+  function selectLine(i) {
+    setSelectedIdx(i)
+    setMoveStep(null)
+  }
+
+  const line  = lines[selectedIdx] || lines[0]
+  const moves = parseSANMoves(line?.move_sequence || '')
+  // null step = show full line (all moves played)
+  const step  = moveStep === null ? moves.length : moveStep
+
+  const boardFen  = moves.length > 0 ? fenAtStep(moves, step) : (line?.fen_after || line?.fen || chess_start)
+  const { orig, dest } = moves.length > 0
+    ? lastMoveAtStep(moves, step)
+    : { orig: line?.move_orig || null, dest: line?.move_dest || null }
 
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto' }}>
-      <SectionHeader>Key Positions</SectionHeader>
-      <p style={{ color: C.textSec, fontSize: 13, marginBottom: 20 }}>
-        The most important positions to know before facing this opponent.
+    <div style={{ maxWidth: 920, margin: '0 auto' }}>
+      <SectionHeader>Key Lines</SectionHeader>
+      <p style={{ color: C.textSec, fontSize: 13, marginBottom: 16 }}>
+        The most important opening lines to prepare before facing this opponent.
+        Click any move to step through the line on the board.
       </p>
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
-        {positions.map((pos, i) => (
-          <button key={i} onClick={() => setSelected(i)}
-            style={{
-              background: selected === i ? '#0f1e2e' : C.surface,
-              border: `1px solid ${selected === i ? C.amber : C.border}`,
-              borderRadius: 8, padding: '6px 12px', cursor: 'pointer',
-              fontSize: 12, color: selected === i ? C.amber : C.textSec,
-              transition: 'all 0.15s',
-            }}>
-            <span style={{ color: typeColor(pos.type), marginRight: 6 }}>
-              {pos.type === 'battleground' ? '⚔' : pos.type === 'weakness' ? '⚡' : '⚠'}
-            </span>
-            {pos.move_san || `Position ${i + 1}`}
-          </button>
-        ))}
-      </div>
 
-      {positions[selected] && (
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`,
-                      borderRadius: 10, padding: 24 }}>
-          <div style={{ marginBottom: 16 }}>
-            <span style={{ color: typeColor(positions[selected].type), fontSize: 10,
-                           textTransform: 'uppercase', letterSpacing: '0.06em',
-                           background: `${typeColor(positions[selected].type)}18`,
-                           border: `1px solid ${typeColor(positions[selected].type)}40`,
-                           borderRadius: 99, padding: '2px 8px', marginRight: 8 }}>
-              {positions[selected].type}
-            </span>
-            <span style={{ color: C.textSec, fontSize: 13 }}>{positions[selected].label}</span>
-          </div>
-          {(() => {
-            const pos = positions[selected]
-            const mv = resolveMove(pos.fen, pos.fen_after, pos.move_orig, pos.move_dest, pos.move_san)
-            return <MiniBoard fen={mv.fen} side={side} orig={mv.orig} dest={mv.dest} size={400} />
-          })()}
+      <div style={{ display: 'flex', gap: 16, flexDirection: isMobile ? 'column' : 'row', alignItems: 'flex-start' }}>
+
+        {/* ── Line list ─────────────────────────────────────────────────── */}
+        <div style={{ width: isMobile ? '100%' : 280, flexShrink: 0 }}>
+          {lines.map((l, i) => (
+            <div key={i} onClick={() => selectLine(i)}
+              style={{
+                padding: '10px 12px', marginBottom: 6, borderRadius: 8, cursor: 'pointer',
+                background: selectedIdx === i ? '#0f1e2e' : C.surface,
+                border: `1px solid ${selectedIdx === i ? C.amber : C.border}`,
+                transition: 'all 0.15s',
+              }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                <TypeBadge type={l.type} />
+              </div>
+              <div style={{
+                fontFamily: 'monospace', fontSize: 12,
+                color: selectedIdx === i ? C.textPri : C.textSec,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {l.move_sequence || '(starting position)'}
+              </div>
+              <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>
+                {l.type === 'battleground'
+                  ? `You ${(l.player_win_rate * 100).toFixed(0)}% · Opp ${(l.opponent_win_rate * 100).toFixed(0)}%`
+                  : `${l.move_san} → best: ${l.best_move_san} (${l.eval_gap_cp > 0 ? '+' : ''}${l.eval_gap_cp}cp)`}
+              </div>
+            </div>
+          ))}
         </div>
-      )}
+
+        {/* ── Board panel ───────────────────────────────────────────────── */}
+        {line && (
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20 }}>
+
+              {/* Type badge + label */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <TypeBadge type={line.type} />
+                <span style={{ fontSize: 13, color: C.textSec }}>{line.label}</span>
+              </div>
+
+              {/* Move chips — clickable PGN stepper */}
+              {moves.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center',
+                              gap: '2px 1px', marginBottom: 14, padding: '8px 10px',
+                              background: '#0a0f1a', borderRadius: 6 }}>
+                  {/* "Start" button */}
+                  <button onClick={() => setMoveStep(0)}
+                    style={{
+                      padding: '2px 6px', borderRadius: 3, border: 'none', cursor: 'pointer',
+                      fontSize: 10, background: step === 0 ? C.amber : '#1e2d45',
+                      color: step === 0 ? '#030712' : C.textDim, marginRight: 4,
+                    }}>
+                    ⏮
+                  </button>
+                  {moves.map((san, i) => {
+                    const afterThis = i + 1
+                    const isActive  = step === afterThis
+                    const isPast    = step > afterThis
+                    return (
+                      <React.Fragment key={i}>
+                        {i % 2 === 0 && (
+                          <span style={{ color: C.textFaint, fontSize: 11, fontFamily: 'monospace',
+                                         marginLeft: i === 0 ? 0 : 4, marginRight: 1 }}>
+                            {i / 2 + 1}.
+                          </span>
+                        )}
+                        <button onClick={() => setMoveStep(afterThis)}
+                          style={{
+                            padding: '2px 5px', borderRadius: 3, border: 'none', cursor: 'pointer',
+                            fontSize: 12, fontFamily: 'monospace',
+                            background: isActive ? C.amber : isPast ? '#1e2d45' : 'transparent',
+                            color:      isActive ? '#030712' : isPast ? C.textPri : C.textDim,
+                            fontWeight: isActive ? 700 : 400,
+                            transition: 'all 0.1s',
+                          }}>
+                          {san}
+                        </button>
+                      </React.Fragment>
+                    )
+                  })}
+                  {/* "End" button */}
+                  <button onClick={() => setMoveStep(null)}
+                    style={{
+                      padding: '2px 6px', borderRadius: 3, border: 'none', cursor: 'pointer',
+                      fontSize: 10, background: step === moves.length ? C.amber : '#1e2d45',
+                      color: step === moves.length ? '#030712' : C.textDim, marginLeft: 4,
+                    }}>
+                    ⏭
+                  </button>
+                </div>
+              )}
+
+              {/* Board */}
+              <MiniBoard fen={boardFen} side={side} orig={orig} dest={dest} size={380} />
+
+              {/* Context detail */}
+              <div style={{ marginTop: 14, padding: '10px 14px', background: '#0a0f1a',
+                            borderRadius: 6, fontSize: 12 }}>
+                {line.type === 'battleground' ? (
+                  <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                    <span>Your move: <strong style={{ color: C.amber, fontFamily: 'monospace' }}>{line.move_san}</strong></span>
+                    <span>Their reply: <strong style={{ color: C.redDim, fontFamily: 'monospace' }}>{line.opp_response_san}</strong></span>
+                    <span style={{ color: line.advantage === 'player' ? C.greenDim : line.advantage === 'opponent' ? C.redDim : C.textSec, fontWeight: 600 }}>
+                      {line.advantage === 'player' ? '✓ Favours you' : line.advantage === 'opponent' ? '✗ Favours them' : '≈ Equal'}
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                    <span>Typical: <strong style={{ color: C.redDim, fontFamily: 'monospace' }}>{line.move_san}</strong></span>
+                    {line.best_move_san && (
+                      <span>Better: <strong style={{ color: C.greenDim, fontFamily: 'monospace' }}>{line.best_move_san}</strong></span>
+                    )}
+                    {line.eval_gap_cp != null && (
+                      <span>Gap: <strong style={{ color: C.amber }}>{line.eval_gap_cp > 0 ? '+' : ''}{line.eval_gap_cp}cp</strong></span>
+                    )}
+                    {line.total_games > 0 && (
+                      <span style={{ color: C.textDim }}>{line.total_games} games</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
+
+const chess_start = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 
 // ---------------------------------------------------------------------------
 // Shared components
