@@ -63,25 +63,23 @@ function useStockfish() {
         scoreStr  = cp >= 0 ? `+${val}` : `${val}`
       }
 
-      // Convert first 5 PV UCI moves to SAN using chess.js
-      let pvSAN = ''
+      // Convert PV UCI moves to SAN + FEN sequence for interactive navigation
+      let pvMoves = []  // [{san, fen, uci, isWhite, moveNum}]
       try {
         const ch = new Chess(fenRef.current)
-        const parts = []
-        for (const uci of pvUCI.slice(0, 5)) {
+        for (const uci of pvUCI.slice(0, 8)) {
           if (ch.isGameOver()) break
-          const from = uci.slice(0, 2)
-          const to   = uci.slice(2, 4)
-          const prom = uci.length === 5 ? uci[4] : undefined
-          const move = ch.move({ from, to, promotion: prom })
+          const from    = uci.slice(0, 2)
+          const to      = uci.slice(2, 4)
+          const prom    = uci.length === 5 ? uci[4] : undefined
+          const moveNum = ch.moveNumber()
+          const move    = ch.move({ from, to, promotion: prom })
           if (!move) break
-          if (move.color === 'w') parts.push(`${ch.moveNumber()}.${move.san}`)
-          else                    parts.push(move.san)
+          pvMoves.push({ san: move.san, fen: ch.fen(), uci, isWhite: move.color === 'w', moveNum })
         }
-        pvSAN = parts.join(' ')
       } catch (_) {}
 
-      pendingRef.current[mpv] = { depth, score: scoreStr, pv: pvSAN, mpv }
+      pendingRef.current[mpv] = { depth, score: scoreStr, pvMoves, mpv }
       setLines(Object.values(pendingRef.current).sort((a, b) => a.mpv - b.mpv))
     }
 
@@ -408,6 +406,8 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
   const [gameData, setGameData] = useState(null)
   const [loading, setLoading]   = useState(false)
   const [ply, setPly]           = useState(0)
+  // pvState: null = game mode  |  {lineIdx, pvPly, baseFen} = exploring an engine line
+  const [pvState, setPvState]   = useState(null)
 
   const { lines, analyse } = useStockfish()
 
@@ -417,11 +417,15 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
     setLoading(true)
     setGameData(null)
     setPly(0)
+    setPvState(null)
     fetch(`/api/jobs/${jobId}/pgn-games/${selectedIndex}`)
       .then(r => r.json())
       .then(d => { setGameData(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [jobId, selectedIndex])
+
+  // Any game-ply navigation exits PV mode
+  useEffect(() => { setPvState(null) }, [ply])
 
   // Debounce engine analysis — board updates immediately on every ply change,
   // but we only ask Stockfish to search after the user pauses navigation.
@@ -433,21 +437,45 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
     if (fen) analyse(fen)
   }, [enginePly, gameData, analyse])
 
-  // Keyboard navigation
+  // Keyboard navigation: arrows work for both game and PV modes
   useEffect(() => {
     const handler = (e) => {
       if (!gameData?.moves) return
-      if (e.key === 'ArrowLeft')  setPly(p => Math.max(0, p - 1))
-      if (e.key === 'ArrowRight') setPly(p => Math.min(gameData.moves.length - 1, p + 1))
+      if (e.key === 'ArrowLeft') {
+        if (pvState) {
+          if (pvState.pvPly > 0) setPvState(s => ({ ...s, pvPly: s.pvPly - 1 }))
+          else setPvState(null)
+        } else {
+          setPly(p => Math.max(0, p - 1))
+        }
+      }
+      if (e.key === 'ArrowRight') {
+        if (pvState) {
+          const maxPly = lines[pvState.lineIdx]?.pvMoves?.length ?? 0
+          setPvState(s => ({ ...s, pvPly: Math.min(maxPly, s.pvPly + 1) }))
+        } else {
+          setPly(p => Math.min(gameData.moves.length - 1, p + 1))
+        }
+      }
+      if (e.key === 'Escape') setPvState(null)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [gameData])
+  }, [gameData, pvState, lines])
 
   const moves   = gameData?.moves || []
   const headers = gameData?.headers || {}
-  const curMove = moves[ply]
-  const lastMove = ply > 0 ? [moves[ply - 1].uci?.slice(0, 2), moves[ply - 1].uci?.slice(2, 4)].filter(Boolean) : []
+
+  // Board position and last-move highlight depend on whether we're in PV mode
+  const activePvMoves = pvState ? (lines[pvState.lineIdx]?.pvMoves ?? []) : []
+  const boardFen = pvState
+    ? (pvState.pvPly === 0 ? pvState.baseFen : activePvMoves[pvState.pvPly - 1]?.fen ?? pvState.baseFen)
+    : (moves[ply]?.fen ?? 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')
+
+  const lastMoveUci = pvState
+    ? (pvState.pvPly > 0 ? activePvMoves[pvState.pvPly - 1]?.uci : null)
+    : (ply > 0 ? moves[ply - 1]?.uci : null)
+  const lastMove = lastMoveUci ? [lastMoveUci.slice(0, 2), lastMoveUci.slice(2, 4)] : undefined
 
   const boardSize = Math.min(isMobile ? window.innerWidth - 24 : 420, 520)
 
@@ -487,9 +515,9 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
             width={boardSize}
             height={boardSize}
             config={{
-              fen:         curMove?.fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+              fen:         boardFen,
               orientation: side,
-              lastMove:    lastMove.length === 2 ? lastMove : undefined,
+              lastMove,
               movable:     { free: false, color: 'none' },
               draggable:   { enabled: false },
               selectable:  { enabled: false },
@@ -499,66 +527,106 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
 
           {/* Nav controls */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button onClick={() => setPly(0)}
-              style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>
-              ⏮
-            </button>
-            <button onClick={() => setPly(p => Math.max(0, p - 1))}
-              style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>
-              ←
-            </button>
-            <span style={{ color: '#9ca3af', fontSize: 12, minWidth: 60, textAlign: 'center' }}>
-              {ply === 0 ? 'Start' : `Move ${moves[ply]?.move_number} (${moves[ply]?.color})`}
-            </span>
-            <button onClick={() => setPly(p => Math.min(moves.length - 1, p + 1))}
-              style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>
-              →
-            </button>
-            <button onClick={() => setPly(moves.length - 1)}
-              style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>
-              ⏭
-            </button>
+            {pvState ? (
+              <>
+                <button onClick={() => setPvState(s => ({ ...s, pvPly: 0 }))}
+                  style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>⏮</button>
+                <button onClick={() => setPvState(s => ({ ...s, pvPly: Math.max(0, s.pvPly - 1) }))}
+                  style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>←</button>
+                <button onClick={() => setPvState(null)}
+                  style={{ background: 'none', border: '1px solid #374151', color: '#60a5fa', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 11 }}>
+                  ↩ game
+                </button>
+                <button onClick={() => setPvState(s => ({ ...s, pvPly: Math.min(activePvMoves.length, s.pvPly + 1) }))}
+                  style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>→</button>
+                <button onClick={() => setPvState(s => ({ ...s, pvPly: activePvMoves.length }))}
+                  style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>⏭</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setPly(0)}
+                  style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>⏮</button>
+                <button onClick={() => setPly(p => Math.max(0, p - 1))}
+                  style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>←</button>
+                <span style={{ color: '#9ca3af', fontSize: 12, minWidth: 60, textAlign: 'center' }}>
+                  {ply === 0 ? 'Start' : `Move ${moves[ply]?.move_number} (${moves[ply]?.color})`}
+                </span>
+                <button onClick={() => setPly(p => Math.min(moves.length - 1, p + 1))}
+                  style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>→</button>
+                <button onClick={() => setPly(moves.length - 1)}
+                  style={{ background: '#374151', border: 'none', color: '#fff', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 16 }}>⏭</button>
+              </>
+            )}
           </div>
         </div>
 
         {/* Move list + engine column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, borderLeft: isMobile ? 'none' : '1px solid #374151', borderTop: isMobile ? '1px solid #374151' : 'none' }}>
           {moves.length > 0 && (
-            <MoveList moves={moves} currentPly={ply} onPlySelect={setPly} />
+            <MoveList
+              moves={moves}
+              currentPly={pvState ? -1 : ply}
+              onPlySelect={(p) => { setPvState(null); setPly(p) }}
+            />
           )}
 
           {/* Engine panel */}
           <div style={{ flex: 1, padding: '10px 12px', overflow: 'auto' }}>
             <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Stockfish analysis
+              Engine lines {lines[0] ? <span style={{ color: '#374151' }}>· depth {lines[0].depth}</span> : null}
             </div>
             {lines.length === 0 ? (
               <div style={{ color: '#4b5563', fontSize: 13 }}>Analysing…</div>
             ) : (
               <div style={{ display: 'flex', gap: 8 }}>
                 <EvalBar lines={lines} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 0 }}>
-                  {lines.map((ln, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                      <span style={{
-                        fontSize: 13, fontWeight: 700, minWidth: 48,
-                        color: ln.score?.startsWith('#') ? '#f59e0b' :
-                               parseFloat(ln.score) > 0 ? '#4ade80' :
-                               parseFloat(ln.score) < 0 ? '#f87171' : '#d1d5db',
-                        fontFamily: 'monospace',
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
+                  {lines.map((ln, lineIdx) => {
+                    const isActiveLine = pvState?.lineIdx === lineIdx
+                    const scoreColor = ln.score?.startsWith('#') ? '#f59e0b'
+                      : parseFloat(ln.score) > 0 ? '#4ade80'
+                      : parseFloat(ln.score) < 0 ? '#f87171' : '#d1d5db'
+                    return (
+                      <div key={lineIdx} style={{
+                        padding: '4px 6px', borderRadius: 5,
+                        background: isActiveLine ? '#1e3a5f' : 'transparent',
+                        border: `1px solid ${isActiveLine ? '#2563eb' : 'transparent'}`,
                       }}>
-                        {ln.score}
-                      </span>
-                      <span style={{ fontSize: 13, color: '#d1d5db', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                        {ln.pv}
-                      </span>
-                    </div>
-                  ))}
-                  {lines[0] && (
-                    <div style={{ fontSize: 11, color: '#4b5563', marginTop: 2 }}>
-                      depth {lines[0].depth}
-                    </div>
-                  )}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '0 2px' }}>
+                          {/* Score chip — clicking jumps to first move of this line */}
+                          <button
+                            onClick={() => setPvState({ lineIdx, pvPly: 1, baseFen: moves[ply]?.fen ?? boardFen })}
+                            style={{
+                              fontSize: 12, fontWeight: 700, fontFamily: 'monospace',
+                              minWidth: 44, marginRight: 4, padding: '1px 4px',
+                              borderRadius: 4, border: 'none', cursor: 'pointer',
+                              background: isActiveLine ? '#2563eb' : '#1f2937',
+                              color: scoreColor,
+                            }}
+                          >{ln.score}</button>
+                          {/* Individual move chips */}
+                          {ln.pvMoves.map((mv, pvIdx) => {
+                            const isActiveMove = isActiveLine && pvState.pvPly === pvIdx + 1
+                            return (
+                              <button
+                                key={pvIdx}
+                                onClick={() => setPvState({ lineIdx, pvPly: pvIdx + 1, baseFen: moves[ply]?.fen ?? boardFen })}
+                                style={{
+                                  padding: '1px 3px', borderRadius: 3,
+                                  border: 'none', cursor: 'pointer',
+                                  background: isActiveMove ? '#2563eb' : 'transparent',
+                                  color: isActiveMove ? '#fff' : '#d1d5db',
+                                  fontSize: 12, fontFamily: 'monospace',
+                                }}
+                              >
+                                {mv.isWhite ? `${mv.moveNum}.` : ''}{mv.san}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
