@@ -10,6 +10,7 @@ import { Chess } from 'chess.js'
 
 function useStockfish() {
   const workerRef  = useRef(null)
+  const pendingRef = useRef({})  // multipv index → latest info; reset on each analyse()
   const [lines, setLines] = useState([])   // [{multipv, score, pv}]
   const fenRef     = useRef(null)
 
@@ -20,7 +21,6 @@ function useStockfish() {
     } catch (_) {
       return
     }
-    const pending = {}  // multipv index → latest info
 
     worker.onmessage = ({ data }) => {
       const msg = typeof data === 'string' ? data : String(data)
@@ -67,10 +67,10 @@ function useStockfish() {
         pvSAN = parts.join(' ')
       } catch (_) {}
 
-      pending[mpv] = { depth, score: scoreStr, pv: pvSAN, mpv }
+      pendingRef.current[mpv] = { depth, score: scoreStr, pv: pvSAN, mpv }
 
       // Publish all lines sorted by multipv index
-      const updated = Object.values(pending).sort((a, b) => a.mpv - b.mpv)
+      const updated = Object.values(pendingRef.current).sort((a, b) => a.mpv - b.mpv)
       setLines([...updated])
     }
 
@@ -86,6 +86,7 @@ function useStockfish() {
     const w = workerRef.current
     if (!w) return
     fenRef.current = fen
+    pendingRef.current = {}  // clear stale lines from previous position
     w.postMessage('stop')
     setLines([])
     w.postMessage(`position fen ${fen}`)
