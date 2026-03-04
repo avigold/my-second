@@ -446,7 +446,7 @@ def _compute_style_profile(
     all_win_rates: list[float] = []
     total_moves_indexed = 0
 
-    # Aggregate win/draw/loss across all positions for draw_rate.
+    # Aggregate win/draw/loss across all positions for draw_rate / decisive_rate.
     agg_white = agg_draws = agg_black = 0
 
     for fen, payload in cache_index.items():
@@ -467,7 +467,38 @@ def _compute_style_profile(
     if n == 0:
         return _empty_profile()
 
-    avg_win_rate = sum(all_win_rates) / n
+    # avg_win_rate: use the root (starting) position so every game is counted
+    # exactly once.  An unweighted average over all cached positions is distorted
+    # by rare/losing side-lines that each count the same as main-line positions
+    # with hundreds of games.
+    root_payload = cache_index.get(chess.STARTING_FEN, {})
+    r_w = root_payload.get("white", 0)
+    r_d = root_payload.get("draws", 0)
+    r_b = root_payload.get("black", 0)
+    r_total = r_w + r_d + r_b
+    if r_total > 0:
+        avg_win_rate = (r_w if color == "white" else r_b) / r_total
+    else:
+        # Root not in cache (unusual) — fall back to weighted average over
+        # player-to-move positions only.
+        weighted_wins = 0.0
+        weighted_total = 0
+        for fen, payload in cache_index.items():
+            try:
+                if chess.Board(fen).turn != player_chess_color:
+                    continue
+            except Exception:
+                continue
+            w = payload.get("white", 0)
+            d = payload.get("draws", 0)
+            b = payload.get("black", 0)
+            total = w + d + b
+            if total == 0:
+                continue
+            weighted_wins  += (w if color == "white" else b)
+            weighted_total += total
+        avg_win_rate = weighted_wins / weighted_total if weighted_total > 0 else 0.0
+
     solidness    = sum(1 for r in all_win_rates if r > 0.5) / n
 
     agg_total    = agg_white + agg_draws + agg_black or 1
