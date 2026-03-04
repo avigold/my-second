@@ -312,6 +312,17 @@ class JobRegistry:
             cur.execute("UPDATE jobs SET pid = %s WHERE id = %s", (pid, job_id))
             conn.commit()
 
+    def set_out_path(self, job_id: str, out_path: str) -> None:
+        """Persist the output file path immediately so orphan recovery can find it."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return
+            job.out_path = out_path
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE jobs SET out_path = %s WHERE id = %s", (out_path, job_id))
+            conn.commit()
+
     def mark_cancelled(self, job_id: str) -> bool:
         """Mark a running or queued job as cancelled.
         Returns True if the job existed and was running or queued."""

@@ -282,7 +282,7 @@ def api_fetch():
     job = registry.create("fetch", params, out_path=None, user_id=user["id"] if user else None)
     # Set out_path to a UUID-named PGN so games can be browsed after fetch.
     pgn_out = str(OUTPUT_DIR / f"{job.id}.pgn")
-    job.out_path = pgn_out          # persisted to DB on job completion
+    registry.set_out_path(job.id, pgn_out)  # persist immediately — orphan recovery needs this
     params["pgn_out"] = pgn_out     # picked up by build_fetch_argv → --out
     argv = build_fetch_argv(params)
     launch_job(job, argv, REPO_ROOT, registry)
