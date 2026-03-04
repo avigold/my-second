@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
+import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import psycopg2
@@ -57,6 +60,15 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS jobs_started_at_idx ON jobs (started_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_user_id_idx    ON jobs (user_id);
 
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='jobs' AND column_name='pid'
+  ) THEN
+    ALTER TABLE jobs ADD COLUMN pid INTEGER;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS subscriptions (
     user_id                UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     stripe_customer_id     TEXT UNIQUE,
@@ -80,6 +92,7 @@ class Job:
     out_path: str | None = None
     exit_code: int | None = None
     user_id: str | None = None
+    pid: int | None = None  # subprocess PID — used to reconnect after restart
     # Not persisted — live only while the process runs:
     log_lines: list[str] = field(default_factory=list, repr=False)
     queue: queue.Queue    = field(default_factory=queue.Queue, repr=False)
@@ -288,6 +301,17 @@ class JobRegistry:
             conn.commit()
         return updated > 0
 
+    def set_pid(self, job_id: str, pid: int) -> None:
+        """Store the subprocess PID immediately after launch."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return
+            job.pid = pid
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE jobs SET pid = %s WHERE id = %s", (pid, job_id))
+            conn.commit()
+
     def mark_cancelled(self, job_id: str) -> bool:
         """Mark a running or queued job as cancelled.
         Returns True if the job existed and was running or queued."""
@@ -462,33 +486,60 @@ class JobRegistry:
             cur.execute(
                 """
                 SELECT id, command, params, status, started_at, finished_at,
-                       out_path, exit_code, log_text, user_id
+                       out_path, exit_code, log_text, user_id, pid
                 FROM jobs
                 ORDER BY started_at DESC
                 """
             )
             rows = cur.fetchall()
 
+        orphans: list[Job] = []
+
         for row in rows:
             job_id, command, params, status, started_at, finished_at, \
-                out_path, exit_code, log_text, user_id = row
+                out_path, exit_code, log_text, user_id, pid = row
 
             if status == "running":
-                status = "cancelled"
+                # Check if the output file already exists (job finished before restart).
+                if out_path and Path(out_path).exists():
+                    status    = "done"
+                    exit_code = 0
+                elif pid and _pid_alive(pid):
+                    # Subprocess is still running as an orphan — keep "running"
+                    # and spawn a watcher thread to detect completion.
+                    pass   # status stays "running"; added to orphans below
+                else:
+                    status = "cancelled"
 
             job = Job(
                 id=str(job_id),
                 command=command,
-                params=params,          # psycopg2 deserialises JSONB → dict automatically
+                params=params,
                 status=status,
                 started_at=started_at,
                 finished_at=finished_at,
                 out_path=out_path,
                 exit_code=exit_code,
+                pid=pid,
                 user_id=str(user_id) if user_id else None,
                 log_lines=log_text.splitlines() if log_text else [],
             )
             self._jobs[job.id] = job
+
+            if status == "running":
+                orphans.append(job)
+
+        # Persist corrected statuses (done / cancelled) back to DB.
+        for job in self._jobs.values():
+            if job.status in ("done", "cancelled") and job.finished_at is None:
+                job.finished_at = datetime.now(tz=timezone.utc)
+                self._persist(job)
+
+        # Spawn watcher threads for orphaned subprocesses.
+        for job in orphans:
+            threading.Thread(
+                target=_watch_orphan, args=(job, self), daemon=True
+            ).start()
 
     def _fetch_from_db(self, job_id: str) -> Job | None:
         """Load a single job from the DB — used when it wasn't found in memory."""
@@ -496,7 +547,7 @@ class JobRegistry:
             cur.execute(
                 """
                 SELECT id, command, params, status, started_at, finished_at,
-                       out_path, exit_code, log_text, user_id
+                       out_path, exit_code, log_text, user_id, pid
                 FROM jobs WHERE id = %s
                 """,
                 (job_id,),
@@ -505,10 +556,14 @@ class JobRegistry:
         if row is None:
             return None
         job_id_, command, params, status, started_at, finished_at, \
-            out_path, exit_code, log_text, user_id = row
-        # Can't stream a job owned by another worker — treat as cancelled.
+            out_path, exit_code, log_text, user_id, pid = row
+        # Running job owned by another worker: check output file before giving up.
         if status == "running":
-            status = "cancelled"
+            if out_path and Path(out_path).exists():
+                status    = "done"
+                exit_code = 0
+            else:
+                status = "cancelled"
         job = Job(
             id=str(job_id_),
             command=command,
@@ -518,6 +573,7 @@ class JobRegistry:
             finished_at=finished_at,
             out_path=out_path,
             exit_code=exit_code,
+            pid=pid,
             user_id=str(user_id) if user_id else None,
             log_lines=log_text.splitlines() if log_text else [],
         )
@@ -531,15 +587,16 @@ class JobRegistry:
                 """
                 INSERT INTO jobs (
                     id, user_id, command, params, status,
-                    started_at, finished_at, out_path, exit_code, log_text
+                    started_at, finished_at, out_path, exit_code, log_text, pid
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     status      = EXCLUDED.status,
                     finished_at = EXCLUDED.finished_at,
                     out_path    = EXCLUDED.out_path,
                     exit_code   = EXCLUDED.exit_code,
-                    log_text    = EXCLUDED.log_text
+                    log_text    = EXCLUDED.log_text,
+                    pid         = COALESCE(EXCLUDED.pid, jobs.pid)
                 """,
                 (
                     job.id,
@@ -552,6 +609,7 @@ class JobRegistry:
                     job.out_path,
                     job.exit_code,
                     "\n".join(job.log_lines) if job.log_lines else None,
+                    job.pid,
                 ),
             )
             conn.commit()
@@ -612,7 +670,6 @@ class JobQueue:
             try:
                 if original_launch:
                     original_launch()
-                import time
                 while job.status == "running":
                     time.sleep(1)
             finally:
@@ -645,3 +702,48 @@ class JobQueue:
                 self._waiting.remove(job_id)
             except ValueError:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Orphan recovery helpers (module-level so they can be used by JobRegistry)
+# ---------------------------------------------------------------------------
+
+def _pid_alive(pid: int) -> bool:
+    """Return True if a process with the given PID is currently running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
+    """Poll an orphaned subprocess until it completes or dies.
+
+    Called in a daemon thread by _load_existing() when a running job's
+    subprocess survived a gunicorn restart.  Checks the output file every
+    few seconds; when the file appears (or the PID dies) it marks the job
+    done or failed accordingly.
+    """
+    out = Path(job.out_path) if job.out_path else None
+    pid = job.pid
+
+    job.log_lines.append("[recovery] Reconnected to orphaned subprocess after server restart.")
+    job.queue.put("[recovery] Reconnected to orphaned subprocess after server restart.")
+
+    while True:
+        if out and out.exists() and out.stat().st_size > 0:
+            job.log_lines.append("[recovery] Output file found — job completed successfully.")
+            job.queue.put("[recovery] Output file found — job completed successfully.")
+            job.queue.put(None)  # SSE sentinel
+            registry.update_status(job.id, "done", exit_code=0)
+            return
+
+        if pid and not _pid_alive(pid):
+            job.log_lines.append("[recovery] Subprocess exited without producing output.")
+            job.queue.put("[recovery] Subprocess exited without producing output.")
+            job.queue.put(None)
+            registry.update_status(job.id, "failed", exit_code=-1)
+            return
+
+        time.sleep(3)

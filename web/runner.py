@@ -118,6 +118,8 @@ def _do_launch(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") 
         preexec_fn=os.setsid,
     )
     job.process = proc
+    # Persist PID immediately so orphan recovery works if the server restarts.
+    registry.set_pid(job.id, proc.pid)
 
     def _reader() -> None:
         assert proc.stdout is not None
