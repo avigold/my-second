@@ -557,13 +557,21 @@ class JobRegistry:
             return None
         job_id_, command, params, status, started_at, finished_at, \
             out_path, exit_code, log_text, user_id, pid = row
-        # Running job owned by another worker: check output file before giving up.
+        # Running job owned by another worker: check output file + PID before giving up.
+        # Only mark cancelled if we know for certain the process is dead (PID was set
+        # but the process no longer exists).  If PID is NULL the subprocess is very
+        # new (started within the last few seconds) — keep "running" so the UI
+        # doesn't flash "cancelled" while the launcher thread is still setting up.
+        orphan = False
         if status == "running":
             if out_path and Path(out_path).exists():
                 status    = "done"
                 exit_code = 0
-            else:
-                status = "cancelled"
+            elif pid and _pid_alive(pid):
+                orphan = True  # still alive on another worker — keep "running"
+            elif pid and not _pid_alive(pid):
+                status = "cancelled"  # PID known but dead → definitely cancelled
+            # else: pid is None → subprocess just started, PID not written yet → keep "running"
         job = Job(
             id=str(job_id_),
             command=command,
@@ -579,6 +587,8 @@ class JobRegistry:
         )
         with self._lock:
             self._jobs[job.id] = job  # cache it so subsequent requests are fast
+        if orphan:
+            threading.Thread(target=_watch_orphan, args=(job, self), daemon=True).start()
         return job
 
     def _persist(self, job: Job) -> None:
