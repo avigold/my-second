@@ -24,6 +24,10 @@ web/novelty-browser/node_modules/
 # Vite build output — built on the server by deploy.sh (npm ci && npm run build)
 web/static/dist/
 
+# Stockfish WASM — copied from node_modules during npm run build
+web/static/stockfish.js
+web/static/stockfish.wasm
+
 # ── Local data & runtime state ────────────────────────────────────────────────
 # SQLite databases (populated at runtime — never commit user data)
 data/cache.sqlite

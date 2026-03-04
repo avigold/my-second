@@ -279,7 +279,11 @@ def api_fetch():
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
-    job = registry.create("fetch", params, user_id=user["id"] if user else None)
+    job = registry.create("fetch", params, out_path=None, user_id=user["id"] if user else None)
+    # Set out_path to a UUID-named PGN so games can be browsed after fetch.
+    pgn_out = str(OUTPUT_DIR / f"{job.id}.pgn")
+    job.out_path = pgn_out          # persisted to DB on job completion
+    params["pgn_out"] = pgn_out     # picked up by build_fetch_argv → --out
     argv = build_fetch_argv(params)
     launch_job(job, argv, REPO_ROOT, registry)
     return jsonify({"job_id": job.id})
@@ -688,6 +692,23 @@ def strategise_report_page(job_id: str):
     )
 
 
+@app.get("/jobs/<job_id>/games")
+def game_analysis_page(job_id: str):
+    job = registry.get(job_id)
+    if job is None or job.command not in ("fetch", "import"):
+        return "Not found", 404
+    side = job.params.get("color", "white")
+    css_tag, js_tag = _vite_tags()
+    return render_template(
+        "game_analysis.html",
+        job=job.to_dict(),
+        job_id=job_id,
+        side=side,
+        css_tag=css_tag,
+        js_tag=js_tag,
+    )
+
+
 @app.get("/pricing")
 def pricing_page():
     return render_template("pricing.html")
@@ -943,6 +964,136 @@ def api_strategise_data(job_id: str):
     import json as _json
     with open(job.out_path, encoding="utf-8") as f:
         return jsonify(_json.load(f))
+
+
+@app.get("/api/jobs/<job_id>/pgn-games")
+def api_pgn_games_list(job_id: str):
+    """Return a paginated, filtered list of games from the job's PGN file."""
+    import io as _io
+    job = registry.get(job_id)
+    if job is None:
+        return jsonify({"error": "not found"}), 404
+    if not job.out_path or not Path(job.out_path).exists():
+        return jsonify({"error": "PGN file not available"}), 404
+
+    page      = max(1, int(request.args.get("page", 1)))
+    per_page  = min(50, max(1, int(request.args.get("per_page", 20))))
+    q         = request.args.get("q", "").strip().lower()
+    result_f  = request.args.get("result", "all")   # all|win|draw|loss
+
+    player_color    = job.params.get("color", "white")
+    player_username = job.params.get("username", "").lower()
+
+    pgn_text = Path(job.out_path).read_text(encoding="utf-8", errors="replace")
+    buf = _io.StringIO(pgn_text)
+
+    all_games = []
+    idx = 0
+    while True:
+        headers = chess.pgn.read_headers(buf)
+        if headers is None:
+            break
+        white  = headers.get("White", "?")
+        black  = headers.get("Black", "?")
+        result = headers.get("Result", "*")
+
+        # Derive player result from perspective of player_color.
+        if result == "1/2-1/2":
+            player_result = "draw"
+        elif (result == "1-0" and player_color == "white") or \
+             (result == "0-1" and player_color == "black"):
+            player_result = "win"
+        elif result in ("1-0", "0-1"):
+            player_result = "loss"
+        else:
+            player_result = "unknown"
+
+        opponent = black if player_color == "white" else white
+
+        all_games.append({
+            "index":         idx,
+            "white":         white,
+            "black":         black,
+            "result":        result,
+            "player_result": player_result,
+            "opponent":      opponent,
+            "date":          headers.get("Date", ""),
+            "time_control":  headers.get("TimeControl", ""),
+            "eco":           headers.get("ECO", ""),
+            "opening":       headers.get("Opening", headers.get("Variant", "")),
+        })
+        idx += 1
+
+    # Apply filters.
+    filtered = all_games
+    if q:
+        filtered = [g for g in filtered if q in g["opponent"].lower()]
+    if result_f in ("win", "draw", "loss"):
+        filtered = [g for g in filtered if g["player_result"] == result_f]
+
+    total  = len(filtered)
+    start  = (page - 1) * per_page
+    paged  = filtered[start : start + per_page]
+
+    return jsonify({
+        "total":        total,
+        "page":         page,
+        "per_page":     per_page,
+        "player_color": player_color,
+        "games":        paged,
+    })
+
+
+@app.get("/api/jobs/<job_id>/pgn-games/<int:index>")
+def api_pgn_game_detail(job_id: str, index: int):
+    """Return full move list for game #index in the job's PGN file."""
+    import io as _io
+    job = registry.get(job_id)
+    if job is None:
+        return jsonify({"error": "not found"}), 404
+    if not job.out_path or not Path(job.out_path).exists():
+        return jsonify({"error": "PGN file not available"}), 404
+
+    player_color = job.params.get("color", "white")
+    pgn_text = Path(job.out_path).read_text(encoding="utf-8", errors="replace")
+    buf = _io.StringIO(pgn_text)
+
+    # Skip to game #index.
+    for _ in range(index):
+        if chess.pgn.read_headers(buf) is None:
+            return jsonify({"error": "index out of range"}), 404
+
+    game = chess.pgn.read_game(buf)
+    if game is None:
+        return jsonify({"error": "index out of range"}), 404
+
+    headers = {k: v for k, v in game.headers.items()}
+
+    # Walk mainline and collect per-ply data.
+    board = game.board()
+    moves = [{"fen": board.fen(), "san": None, "uci": None,
+               "move_number": 0, "color": None}]  # starting position
+
+    for node in game.mainline():
+        move       = node.move
+        san        = board.san(move)
+        uci        = move.uci()
+        move_num   = board.fullmove_number
+        color      = "white" if board.turn == chess.WHITE else "black"
+        board.push(move)
+        moves.append({
+            "fen":         board.fen(),
+            "san":         san,
+            "uci":         uci,
+            "move_number": move_num,
+            "color":       color,
+        })
+
+    return jsonify({
+        "headers":      headers,
+        "player_color": player_color,
+        "moves":        moves,
+    })
 
 
 @app.post("/api/import-pgn")

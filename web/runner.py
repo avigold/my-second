@@ -35,6 +35,8 @@ def build_fetch_argv(params: dict) -> list[str]:
         cmd += ["--platform", params["platform"]]
     if params.get("since_date"):
         cmd += ["--since", params["since_date"]]
+    if params.get("pgn_out"):
+        cmd += ["--out", params["pgn_out"]]
     return cmd
 
 

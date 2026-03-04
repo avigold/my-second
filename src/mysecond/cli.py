@@ -449,6 +449,12 @@ def search_cmd(
     show_default=True,
     help="Path to the SQLite cache database.",
 )
+@click.option(
+    "--out",
+    "pgn_out",
+    default=None,
+    help="Write raw PGN to this file (enables game browsing after fetch).",
+)
 def fetch_cmd(
     username: str,
     color: str,
@@ -458,6 +464,7 @@ def fetch_cmd(
     max_plies: int,
     since_date: str | None,
     db_path: str,
+    pgn_out: str | None,
 ) -> None:
     """Download a player's games and index them for fast local lookups.
 
@@ -504,6 +511,8 @@ def fetch_cmd(
                     "[fetch] Tip: pass --since <YYYY-MM-DD> for an incremental update."
                 )
 
+        pgn_out_path = Path(pgn_out) if pgn_out else None
+
         if platform == "chesscom":
             count = fetch_player_games_chesscom(
                 username=username,
@@ -514,6 +523,7 @@ def fetch_cmd(
                 max_games=max_games,
                 since_ts=since_ts,
                 verbose=True,
+                pgn_out=pgn_out_path,
             )
         else:
             count = fetch_player_games(
@@ -525,6 +535,7 @@ def fetch_cmd(
                 max_games=max_games,
                 since_ts=since_ts,
                 verbose=True,
+                pgn_out=pgn_out_path,
             )
 
     if count == 0:

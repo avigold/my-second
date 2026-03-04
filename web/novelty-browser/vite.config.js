@@ -1,8 +1,34 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { copyFileSync, mkdirSync } from 'fs'
+import { resolve } from 'path'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'copy-stockfish',
+      closeBundle() {
+        // Copy Stockfish WASM worker files to web/static/ so the browser
+        // can load them as Web Workers (outside the Vite bundle).
+        const staticDir = resolve('../static')
+        mkdirSync(staticDir, { recursive: true })
+        // Use the lite variant (~7 MB vs 108 MB for full NNUE).
+        const variants = [
+          ['stockfish-18-lite.js',   'stockfish.js'],
+          ['stockfish-18-lite.wasm', 'stockfish.wasm'],
+        ]
+        for (const [src, dst] of variants) {
+          try {
+            copyFileSync(
+              resolve(`node_modules/stockfish/bin/${src}`),
+              resolve(`../static/${dst}`)
+            )
+          } catch (_) {}
+        }
+      }
+    }
+  ],
   // Source lives in novelty-browser/, build output goes to web/static/dist/
   build: {
     outDir: '../static/dist',

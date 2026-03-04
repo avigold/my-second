@@ -75,6 +75,7 @@ def fetch_player_games(
     max_games: int = 10_000,
     since_ts: int | None = None,         # Unix milliseconds
     verbose: bool = True,
+    pgn_out: Path | None = None,         # write raw PGN here for game browsing
 ) -> int:
     """Download games and populate the cache with per-position statistics.
 
@@ -119,6 +120,10 @@ def fetch_player_games(
             print("[fetch] No games returned (check username / colour / speeds).")
         return 0
 
+    if pgn_out is not None:
+        pgn_out.parent.mkdir(parents=True, exist_ok=True)
+        pgn_out.write_text(pgn_text, encoding="utf-8")
+
     if verbose:
         print("[fetch] Parsing games and building opening book …", flush=True)
 
@@ -152,6 +157,7 @@ def fetch_player_games_chesscom(
     max_games: int = 10_000,
     since_ts: int | None = None,         # Unix milliseconds
     verbose: bool = True,
+    pgn_out: Path | None = None,         # write raw PGN here for game browsing
 ) -> int:
     """Download games from Chess.com and populate the cache with per-position statistics.
 
@@ -196,6 +202,10 @@ def fetch_player_games_chesscom(
         if verbose:
             print("[fetch] No games returned (check username / colour / speeds).")
         return 0
+
+    if pgn_out is not None:
+        pgn_out.parent.mkdir(parents=True, exist_ok=True)
+        pgn_out.write_text(pgn_text, encoding="utf-8")
 
     if verbose:
         print("[fetch] Parsing games and building opening book …", flush=True)

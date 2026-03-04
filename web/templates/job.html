@@ -63,6 +63,13 @@
   </div>
 
   <div class="flex flex-wrap gap-2 items-center shrink-0">
+    {% if job.command in ('fetch', 'import') %}
+    <a href="/jobs/{{ job.id }}/games"
+       class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
+       id="browse-btn">
+      Browse Games
+    </a>
+    {% endif %}
     {% if job.command == 'search' %}
     <a href="/jobs/{{ job.id }}/novelties"
        class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
