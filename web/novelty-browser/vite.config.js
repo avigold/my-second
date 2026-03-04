@@ -13,10 +13,10 @@ export default defineConfig({
         // can load them as Web Workers (outside the Vite bundle).
         const staticDir = resolve('../static')
         mkdirSync(staticDir, { recursive: true })
-        // Use the lite variant (~7 MB vs 108 MB for full NNUE).
+        // Use the single-threaded lite variant — doesn't require SharedArrayBuffer.
         const variants = [
-          ['stockfish-18-lite.js',   'stockfish.js'],
-          ['stockfish-18-lite.wasm', 'stockfish.wasm'],
+          ['stockfish-18-lite-single.js',   'stockfish.js'],
+          ['stockfish-18-lite-single.wasm', 'stockfish.wasm'],
         ]
         for (const [src, dst] of variants) {
           try {
