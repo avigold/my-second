@@ -916,9 +916,9 @@ def api_strategise():
     if not params.get("player") or not params.get("player_color") or not params.get("opponent"):
         return jsonify({"error": "player, player_color, and opponent are required"}), 400
 
-    # Inject API key from environment if not supplied by the client
-    if not params.get("api_key"):
-        params["api_key"] = os.environ.get("ANTHROPIC_API_KEY") or None
+    # Never store the API key in params — the CLI subprocess reads it from
+    # ANTHROPIC_API_KEY which it inherits from the gunicorn process environment.
+    params.pop("api_key", None)
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err

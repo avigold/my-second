@@ -199,8 +199,8 @@ def build_strategise_argv(params: dict, out_path: str) -> list[str]:
         cmd += ["--min-eval-gap",     str(params["min_eval_gap"])]
     if params.get("depth"):
         cmd += ["--depth",            str(params["depth"])]
-    if params.get("api_key"):
-        cmd += ["--api-key",          params["api_key"]]
+    # API key is NOT passed as a CLI arg — the subprocess inherits ANTHROPIC_API_KEY
+    # from the environment so it never appears in ps output or job params.
     return cmd
 
 
