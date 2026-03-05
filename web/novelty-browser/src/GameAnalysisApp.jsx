@@ -374,6 +374,13 @@ function GameList({ jobId, selectedIndex, onSelect, page, onPageChange }) {
       background: '#111827',
       overflow: 'hidden',
     }}>
+      {/* Back link */}
+      <div style={{ padding: '8px 12px', borderBottom: '1px solid #1f2937' }}>
+        <a href={`/jobs/${jobId}`} style={{ fontSize: 12, color: '#60a5fa', textDecoration: 'none' }}>
+          ← Back to job
+        </a>
+      </div>
+
       {/* Filters */}
       <div style={{ padding: '10px 12px', borderBottom: '1px solid #374151' }}>
         <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
