@@ -260,17 +260,22 @@ function useGameAnalysis(moves) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function useIsMobile() {
-  // Use 1024px as the breakpoint: portrait + landscape tablets get the
-  // stacked scrollable layout; only proper laptop/desktop widths get the
-  // side-by-side panel layout.
-  const [mobile, setMobile] = useState(() => window.innerWidth < 1024)
+function useWindowSize() {
+  const [size, setSize] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }))
   useEffect(() => {
-    const fn = () => setMobile(window.innerWidth < 1024)
+    const fn = () => setSize({ width: window.innerWidth, height: window.innerHeight })
     window.addEventListener('resize', fn)
     return () => window.removeEventListener('resize', fn)
   }, [])
-  return mobile
+  return size
+}
+
+function useIsMobile() {
+  const { width } = useWindowSize()
+  return width < 1024
 }
 
 function useDebounce(value, delay) {
@@ -296,6 +301,7 @@ function formatDate(d) {
 
 function GameList({ jobId, selectedIndex, onSelect }) {
   const isMobile = useIsMobile()
+  // (width used below for responsive sizing — kept reactive via useIsMobile)
 
   const [page, setPage]         = useState(1)
   const [q, setQ]               = useState('')
@@ -615,6 +621,7 @@ function useBookPlies(moves) {
 
 function AnalysisPanel({ jobId, selectedIndex, side }) {
   const isMobile = useIsMobile()
+  const { width: winW, height: winH } = useWindowSize()
 
   const [gameData, setGameData] = useState(null)
   const [loading, setLoading]   = useState(false)
@@ -721,15 +728,13 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
   // Orient the board from the fetched player's perspective for each game.
   const orientation = gameData?.player_color || side || 'white'
 
-  // Size the board to use most of the available space without overflowing.
-  // On desktop constrain by both viewport height and the available width after
-  // the game list (280px) and the minimum engine panel (300px).
+  // Size the board reactively — winW/winH update on every resize event.
   const boardSize = isMobile
-    ? window.innerWidth - 24
+    ? winW - 24
     : Math.min(
-        window.innerHeight - 150,          // height constraint
-        window.innerWidth - 280 - 300 - 24, // width constraint
-        680,                                // hard cap
+        winH - 150,          // height constraint
+        winW - 280 - 300 - 24, // width: after game list (280) + min engine panel (300)
+        680,                   // hard cap
       )
 
   const topPlayer    = orientation === 'white' ? headers.Black : headers.White
