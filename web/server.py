@@ -981,8 +981,8 @@ def api_pgn_games_list(job_id: str):
     q         = request.args.get("q", "").strip().lower()
     result_f  = request.args.get("result", "all")   # all|win|draw|loss
 
-    player_color    = job.params.get("color", "white")
     player_username = job.params.get("username", "").lower()
+    job_color       = job.params.get("color", "white")   # fallback only
 
     pgn_text = Path(job.out_path).read_text(encoding="utf-8", errors="replace")
     buf = _io.StringIO(pgn_text)
@@ -997,7 +997,15 @@ def api_pgn_games_list(job_id: str):
         black  = headers.get("Black", "?")
         result = headers.get("Result", "*")
 
-        # Derive player result from perspective of player_color.
+        # Determine the player's actual colour in this game by username match.
+        if player_username and player_username == white.lower():
+            player_color = "white"
+        elif player_username and player_username == black.lower():
+            player_color = "black"
+        else:
+            player_color = job_color
+
+        # Derive player result from the player's actual colour.
         if result == "1/2-1/2":
             player_result = "draw"
         elif (result == "1-0" and player_color == "white") or \
@@ -1054,7 +1062,7 @@ def api_pgn_game_detail(job_id: str, index: int):
     if not job.out_path or not Path(job.out_path).exists():
         return jsonify({"error": "PGN file not available"}), 404
 
-    player_color = job.params.get("color", "white")
+    username = (job.params.get("username") or "").lower()
     pgn_text = Path(job.out_path).read_text(encoding="utf-8", errors="replace")
     buf = _io.StringIO(pgn_text)
 
@@ -1068,6 +1076,17 @@ def api_pgn_game_detail(job_id: str, index: int):
         return jsonify({"error": "index out of range"}), 404
 
     headers = {k: v for k, v in game.headers.items()}
+
+    # Determine the player's actual colour in this specific game by matching
+    # the username against the White/Black header (case-insensitive).
+    white_name = headers.get("White", "").lower()
+    black_name = headers.get("Black", "").lower()
+    if username and username == white_name:
+        player_color = "white"
+    elif username and username == black_name:
+        player_color = "black"
+    else:
+        player_color = job.params.get("color", "white")
 
     # Walk mainline and collect per-ply data.
     board = game.board()
