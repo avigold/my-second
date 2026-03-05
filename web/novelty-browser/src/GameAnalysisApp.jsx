@@ -626,7 +626,16 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
   // Badge shown on the destination square after a move (game mode only)
   const currentGrade = !pvState && ply > 0 ? grades[ply] : null
 
-  const boardSize = Math.min(isMobile ? window.innerWidth - 24 : 420, 520)
+  // Orient the board from the fetched player's perspective for each game.
+  const orientation = gameData?.player_color || side || 'white'
+
+  // Size the board to use most of the available viewport height on desktop.
+  const boardSize = isMobile
+    ? window.innerWidth - 24
+    : Math.min(window.innerHeight - 150, 680)
+
+  const topPlayer    = orientation === 'white' ? headers.Black : headers.White
+  const bottomPlayer = orientation === 'white' ? headers.White : headers.Black
 
   if (selectedIndex == null) {
     return (
@@ -659,7 +668,13 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
       {/* Board + engine panel */}
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', overflow: 'hidden', minHeight: 0 }}>
         {/* Board column */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 12, gap: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 12, gap: 4, flexShrink: 0 }}>
+          {/* Opponent label (top) */}
+          <div style={{ width: boardSize, display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0' }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: orientation === 'white' ? '#111' : '#f9fafb', border: '1.5px solid #6b7280', flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#f9fafb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{topPlayer}</span>
+          </div>
+
           {/* Board + badge overlay */}
           <div style={{ position: 'relative', width: boardSize, height: boardSize }}>
             <Chessground
@@ -667,7 +682,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
               height={boardSize}
               config={{
                 fen:         boardFen,
-                orientation: side,
+                orientation,
                 lastMove,
                 movable:     { free: false, color: 'none' },
                 draggable:   { enabled: false },
@@ -676,7 +691,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
               }}
             />
             {currentGrade && GRADES[currentGrade]?.showBadge && moves[ply]?.uci && (() => {
-              const { left, top, sz } = squarePx(moves[ply].uci.slice(2, 4), boardSize, side)
+              const { left, top, sz } = squarePx(moves[ply].uci.slice(2, 4), boardSize, orientation)
               const { sym, color }    = GRADES[currentGrade]
               return (
                 <div style={{
@@ -693,6 +708,12 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
                 </div>
               )
             })()}
+          </div>
+
+          {/* Player label (bottom) */}
+          <div style={{ width: boardSize, display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0' }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: orientation === 'white' ? '#f9fafb' : '#111', border: '1.5px solid #6b7280', flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#f9fafb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bottomPlayer}</span>
           </div>
 
           {/* Nav controls */}
