@@ -299,11 +299,10 @@ function formatDate(d) {
 // GameList
 // ---------------------------------------------------------------------------
 
-function GameList({ jobId, selectedIndex, onSelect }) {
+function GameList({ jobId, selectedIndex, onSelect, page, onPageChange }) {
   const isMobile = useIsMobile()
   // (width used below for responsive sizing — kept reactive via useIsMobile)
 
-  const [page, setPage]         = useState(1)
   const [q, setQ]               = useState('')
   const [resultFilter, setResultFilter] = useState('all')
   const [data, setData]         = useState(null)
@@ -312,7 +311,7 @@ function GameList({ jobId, selectedIndex, onSelect }) {
   const debouncedQ = useDebounce(q, 300)
 
   useEffect(() => {
-    setPage(1)
+    onPageChange(1)
   }, [debouncedQ, resultFilter])
 
   useEffect(() => {
@@ -433,13 +432,13 @@ function GameList({ jobId, selectedIndex, onSelect }) {
           padding: '8px 12px', borderTop: '1px solid #374151', fontSize: 12, color: '#9ca3af',
         }}>
           <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
+            onClick={() => onPageChange(p => Math.max(1, p - 1))}
             disabled={page <= 1}
             style={{ background: 'none', border: 'none', color: page > 1 ? '#60a5fa' : '#374151', cursor: page > 1 ? 'pointer' : 'default', fontSize: 16 }}
           >←</button>
           <span>{page} / {totalPages}</span>
           <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            onClick={() => onPageChange(p => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages}
             style={{ background: 'none', border: 'none', color: page < totalPages ? '#60a5fa' : '#374151', cursor: page < totalPages ? 'pointer' : 'default', fontSize: 16 }}
           >→</button>
@@ -963,7 +962,25 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
 
 export default function GameAnalysisApp({ jobId, side }) {
   const isMobile = useIsMobile()
-  const [selectedIndex, setSelectedIndex] = useState(null)
+
+  // Initialize page and selected game from URL query params for deep-linking.
+  const [selectedIndex, setSelectedIndex] = useState(() => {
+    const g = new URLSearchParams(window.location.search).get('game')
+    return g !== null ? parseInt(g) : null
+  })
+  const [page, setPage] = useState(() => {
+    const p = new URLSearchParams(window.location.search).get('page')
+    return p !== null ? Math.max(1, parseInt(p)) : 1
+  })
+
+  // Keep URL in sync so links are always shareable.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search)
+    if (selectedIndex != null) sp.set('game', String(selectedIndex))
+    else sp.delete('game')
+    sp.set('page', String(page))
+    window.history.replaceState(null, '', `?${sp}`)
+  }, [selectedIndex, page])
 
   return (
     <div style={{
@@ -983,6 +1000,8 @@ export default function GameAnalysisApp({ jobId, side }) {
         jobId={jobId}
         selectedIndex={selectedIndex}
         onSelect={setSelectedIndex}
+        page={page}
+        onPageChange={setPage}
       />
       <AnalysisPanel
         jobId={jobId}
