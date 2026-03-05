@@ -575,9 +575,12 @@ function useBookPlies(moves) {
     const requests = Array.from({ length: checkUntil }, (_, i) => {
       const fen = moves[i]?.fen
       if (!fen) return Promise.resolve(null)
+      // No speed/rating filters — those restrict to specific Elo buckets and
+      // can reduce a common Scandinavian position from millions of games to a
+      // few hundred, pushing it below the threshold.  The full database total
+      // is the most reliable signal that a position is established theory.
       const url =
         `https://explorer.lichess.ovh/lichess?fen=${encodeURIComponent(fen)}` +
-        `&speeds=bullet,blitz,rapid,classical&ratings=1800,2000,2200,2500` +
         `&topGames=0&recentGames=0`
       return fetch(url)
         .then(r => r.ok ? r.json() : null)
