@@ -556,6 +556,51 @@ function MoveList({ moves, currentPly, onPlySelect, grades }) {
 }
 
 // ---------------------------------------------------------------------------
+// Opening book detection — Lichess explorer API
+// ---------------------------------------------------------------------------
+
+// A position reached by ≥BOOK_THRESHOLD rated Lichess games is "in book".
+const BOOK_THRESHOLD  = 1000
+const BOOK_CHECK_PLIES = 26   // check starting position + first 25 half-moves
+
+function useBookPlies(moves) {
+  const [bookPlies, setBookPlies] = useState(new Set())
+
+  useEffect(() => {
+    if (!moves || moves.length < 2) return
+    setBookPlies(new Set())
+    let cancelled = false
+
+    const checkUntil = Math.min(moves.length, BOOK_CHECK_PLIES)
+    const requests = Array.from({ length: checkUntil }, (_, i) => {
+      const fen = moves[i]?.fen
+      if (!fen) return Promise.resolve(null)
+      const url =
+        `https://explorer.lichess.ovh/lichess?fen=${encodeURIComponent(fen)}` +
+        `&speeds=bullet,blitz,rapid,classical&ratings=1800,2000,2200,2500` +
+        `&topGames=0&recentGames=0`
+      return fetch(url)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => d ? { i, count: (d.white || 0) + (d.draws || 0) + (d.black || 0) } : null)
+        .catch(() => null)
+    })
+
+    Promise.all(requests).then(results => {
+      if (cancelled) return
+      const s = new Set()
+      for (const r of results) {
+        if (r && r.count >= BOOK_THRESHOLD) s.add(r.i)
+      }
+      setBookPlies(s)
+    })
+
+    return () => { cancelled = true }
+  }, [moves])
+
+  return bookPlies
+}
+
+// ---------------------------------------------------------------------------
 // AnalysisPanel
 // ---------------------------------------------------------------------------
 
@@ -570,6 +615,18 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
 
   const { lines, analyse }    = useStockfish()
   const { grades, progress }  = useGameAnalysis(gameData?.moves)
+  const bookPlies             = useBookPlies(gameData?.moves)
+
+  // Merge Lichess-confirmed book positions on top of engine grades.
+  // The API result is authoritative: a position played in 1000+ rated games
+  // is book regardless of what Stockfish thinks at depth 12.
+  const effectiveGrades = useMemo(() => {
+    const merged = { ...grades }
+    for (const ply of bookPlies) {
+      if (ply > 0) merged[ply] = 'book'
+    }
+    return merged
+  }, [grades, bookPlies])
 
   // Fetch game data when selection changes
   useEffect(() => {
@@ -594,7 +651,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
   // When the move at enginePly was an inaccuracy/mistake/blunder, analyse the
   // position *before* that move so the engine shows what the player should have
   // played instead of showing the opponent's best replies.
-  const currentEplyGrade = grades[enginePly]
+  const currentEplyGrade = effectiveGrades[enginePly]
   const BAD_GRADES = ['inaccuracy', 'mistake', 'blunder']
   const analysedFen = useMemo(() => {
     if (!gameData?.moves) return null
@@ -650,7 +707,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
   const lastMove = lastMoveUci ? [lastMoveUci.slice(0, 2), lastMoveUci.slice(2, 4)] : undefined
 
   // Badge shown on the destination square after a move (game mode only)
-  const currentGrade = !pvState && ply > 0 ? grades[ply] : null
+  const currentGrade = !pvState && ply > 0 ? effectiveGrades[ply] : null
 
   // Orient the board from the fetched player's perspective for each game.
   const orientation = gameData?.player_color || side || 'white'
@@ -784,7 +841,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
               moves={moves}
               currentPly={pvState ? -1 : ply}
               onPlySelect={(p) => { setPvState(null); setPly(p) }}
-              grades={grades}
+              grades={effectiveGrades}
             />
           )}
           {/* Analysis progress bar */}
