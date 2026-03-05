@@ -87,13 +87,20 @@ function useStockfish() {
       const mpv   = parseInt(mpvM[1])
       const pvUCI = pvM[1].trim().split(' ')
 
+      // UCI score is from the side-to-move's perspective.
+      // Normalise to White's perspective (positive = White is better) so that
+      // the eval bar and score chip are always in standard chess convention.
+      const sideToMove = fenRef.current?.split(' ')[1]  // 'w' | 'b'
       let scoreStr = '0.00'
       if (mateM) {
-        scoreStr = `#${mateM[1]}`
+        let mate = parseInt(mateM[1])
+        if (sideToMove === 'b') mate = -mate
+        scoreStr = mate > 0 ? `#${mate}` : `#${mate}`
       } else if (cpM) {
-        const cp  = parseInt(cpM[1])
-        const val = (cp / 100).toFixed(2)
-        scoreStr  = cp >= 0 ? `+${val}` : `${val}`
+        let cp = parseInt(cpM[1])
+        if (sideToMove === 'b') cp = -cp   // flip to White's perspective
+        const val = (Math.abs(cp) / 100).toFixed(2)
+        scoreStr  = cp >= 0 ? `+${val}` : `-${val}`
       }
 
       // Convert PV UCI moves to SAN + FEN sequence for interactive navigation
