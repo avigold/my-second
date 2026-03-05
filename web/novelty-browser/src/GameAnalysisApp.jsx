@@ -346,6 +346,9 @@ function GameList({ jobId, selectedIndex, onSelect }) {
     <div style={{
       width: isMobile ? '100%' : 280,
       minWidth: isMobile ? undefined : 220,
+      // Mobile: compact fixed-height panel so the board is visible without scrolling.
+      maxHeight: isMobile ? 220 : undefined,
+      flexShrink: 0,
       display: 'flex',
       flexDirection: 'column',
       borderRight: isMobile ? 'none' : '1px solid #374151',
@@ -472,7 +475,7 @@ function EvalBar({ lines }) {
 // MoveList
 // ---------------------------------------------------------------------------
 
-function MoveList({ moves, currentPly, onPlySelect, grades }) {
+function MoveList({ moves, currentPly, onPlySelect, grades, maxHeight }) {
   const listRef  = useRef(null)
   const activeRef = useRef(null)
 
@@ -519,7 +522,7 @@ function MoveList({ moves, currentPly, onPlySelect, grades }) {
     <div ref={listRef} style={{
       overflowY: 'auto',
       flex: '0 0 auto',
-      maxHeight: 140,
+      maxHeight: maxHeight ?? 140,
       padding: '4px 8px',
       borderBottom: '1px solid #374151',
       lineHeight: 1.8,
@@ -740,9 +743,9 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
   }
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+    <div style={{ flex: isMobile ? undefined : 1, display: 'flex', flexDirection: 'column', overflow: isMobile ? 'visible' : 'hidden', minWidth: 0 }}>
       {/* Game header */}
-      <div style={{ padding: '8px 16px', borderBottom: '1px solid #374151', fontSize: 13, color: '#9ca3af' }}>
+      <div style={{ padding: '8px 16px', borderBottom: '1px solid #374151', fontSize: 13, color: '#9ca3af', flexShrink: 0 }}>
         <span style={{ color: '#f9fafb', fontWeight: 600 }}>{headers.White}</span>
         {' vs '}
         <span style={{ color: '#f9fafb', fontWeight: 600 }}>{headers.Black}</span>
@@ -752,7 +755,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
       </div>
 
       {/* Board + engine panel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ flex: isMobile ? undefined : 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', overflow: isMobile ? 'visible' : 'hidden', minHeight: isMobile ? undefined : 0 }}>
         {/* Board column */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 12, gap: 4, flexShrink: 0 }}>
           {/* Opponent label (top) */}
@@ -838,13 +841,14 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
         </div>
 
         {/* Move list + engine column */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, borderLeft: isMobile ? 'none' : '1px solid #374151', borderTop: isMobile ? '1px solid #374151' : 'none' }}>
+        <div style={{ flex: isMobile ? undefined : 1, display: 'flex', flexDirection: 'column', overflow: isMobile ? 'visible' : 'hidden', minWidth: 0, borderLeft: isMobile ? 'none' : '1px solid #374151', borderTop: isMobile ? '1px solid #374151' : 'none' }}>
           {moves.length > 0 && (
             <MoveList
               moves={moves}
               currentPly={pvState ? -1 : ply}
               onPlySelect={(p) => { setPvState(null); setPly(p) }}
               grades={effectiveGrades}
+              maxHeight={isMobile ? undefined : 140}
             />
           )}
           {/* Analysis progress bar */}
@@ -857,7 +861,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
           )}
 
           {/* Engine panel */}
-          <div style={{ flex: 1, padding: '10px 12px', overflow: 'auto' }}>
+          <div style={{ flex: isMobile ? undefined : 1, padding: '10px 12px', overflow: isMobile ? 'visible' : 'auto', paddingBottom: isMobile ? 32 : undefined }}>
             <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>Engine lines {lines[0] ? <span style={{ color: '#374151' }}>· depth {lines[0].depth}</span> : null}</span>
               {currentGrade && ['mistake', 'blunder', 'inaccuracy'].includes(currentGrade) && (
@@ -951,11 +955,15 @@ export default function GameAnalysisApp({ jobId, side }) {
     <div style={{
       display: 'flex',
       flexDirection: isMobile ? 'column' : 'row',
-      height: '100vh',
+      // Desktop: fixed full-height panel layout.
+      // Mobile: natural-height page that scrolls; use 100dvh to account for
+      // browser chrome that shrinks on scroll.
+      height: isMobile ? 'auto' : '100vh',
+      minHeight: isMobile ? '100dvh' : undefined,
       background: '#0f172a',
       color: '#f9fafb',
       fontFamily: 'system-ui, sans-serif',
-      overflow: 'hidden',
+      overflow: isMobile ? 'visible' : 'hidden',
     }}>
       <GameList
         jobId={jobId}
