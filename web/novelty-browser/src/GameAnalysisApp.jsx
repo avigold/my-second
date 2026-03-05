@@ -183,9 +183,11 @@ function useGameAnalysis(moves) {
       if (!ev[i] || !ev[i - 1] || !moves[i]) return
       const cpBefore = evalToCP(ev[i - 1])
       const cpAfter  = evalToCP(ev[i])
-      const loss = moves[i].color === 'white'
-        ? cpBefore - cpAfter   // white: eval should stay high
-        : cpAfter  - cpBefore  // black: eval should stay low (for white)
+      // UCI score is always from the side-to-move's perspective.
+      // cpBefore: mover's score before the move.
+      // cpAfter:  opponent's score after the move (opposite sign for mover).
+      // Loss for the mover = cpBefore − (−cpAfter) = cpBefore + cpAfter.
+      const loss = cpBefore + cpAfter
       const grade = gradeMove(Math.max(0, loss))
       if (!cancelled) setGrades(prev => ({ ...prev, [i]: grade }))
     }
