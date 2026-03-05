@@ -584,11 +584,23 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
   // but we only ask Stockfish to search after the user pauses navigation.
   const enginePly = useDebounce(ply, 300)
 
+  // When the move at enginePly was an inaccuracy/mistake/blunder, analyse the
+  // position *before* that move so the engine shows what the player should have
+  // played instead of showing the opponent's best replies.
+  const currentEplyGrade = grades[enginePly]
+  const BAD_GRADES = ['inaccuracy', 'mistake', 'blunder']
+  const analysedFen = useMemo(() => {
+    if (!gameData?.moves) return null
+    const isBad = enginePly > 0 && BAD_GRADES.includes(currentEplyGrade)
+    return isBad
+      ? (gameData.moves[enginePly - 1]?.fen ?? null)
+      : (gameData.moves[enginePly]?.fen ?? null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enginePly, gameData, currentEplyGrade])
+
   useEffect(() => {
-    if (!gameData?.moves) return
-    const fen = gameData.moves[enginePly]?.fen
-    if (fen) analyse(fen)
-  }, [enginePly, gameData, analyse])
+    if (analysedFen) analyse(analysedFen)
+  }, [analysedFen, analyse])
 
   // Keyboard navigation: arrows work for both game and PV modes
   useEffect(() => {
@@ -811,7 +823,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
                         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '0 2px' }}>
                           {/* Score chip — clicking jumps to first move of this line */}
                           <button
-                            onClick={() => setPvState({ lineIdx, pvPly: 1, baseFen: moves[ply]?.fen ?? boardFen })}
+                            onClick={() => setPvState({ lineIdx, pvPly: 1, baseFen: analysedFen ?? moves[ply]?.fen ?? boardFen })}
                             style={{
                               fontSize: 12, fontWeight: 700, fontFamily: 'monospace',
                               minWidth: 44, marginRight: 4, padding: '1px 4px',
@@ -831,7 +843,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
                             return (
                               <button
                                 key={pvIdx}
-                                onClick={() => setPvState({ lineIdx, pvPly: pvIdx + 1, baseFen: moves[ply]?.fen ?? boardFen })}
+                                onClick={() => setPvState({ lineIdx, pvPly: pvIdx + 1, baseFen: analysedFen ?? moves[ply]?.fen ?? boardFen })}
                                 style={{
                                   padding: '1px 3px', borderRadius: 3,
                                   border: 'none', cursor: 'pointer',
