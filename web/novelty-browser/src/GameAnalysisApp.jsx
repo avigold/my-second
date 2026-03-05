@@ -12,7 +12,7 @@ const GRADES = {
   book:       { sym: '📖', color: '#64748b', label: 'Book',       showBadge: false },
   best:       { sym: '✓',  color: '#22c55e', label: 'Best',       showBadge: false },
   excellent:  { sym: '!',  color: '#06b6d4', label: 'Excellent',  showBadge: true  },
-  good:       { sym: '✓',  color: '#86efac', label: 'Good',       showBadge: false },
+  good:       { sym: '·',  color: '#6b7280', label: 'Good',       showBadge: false },
   inaccuracy: { sym: '?!', color: '#f59e0b', label: 'Inaccuracy', showBadge: true  },
   mistake:    { sym: '?',  color: '#f97316', label: 'Mistake',    showBadge: true  },
   blunder:    { sym: '??', color: '#ef4444', label: 'Blunder',    showBadge: true  },
@@ -494,10 +494,9 @@ function MoveList({ moves, currentPly, onPlySelect, grades }) {
     display: 'inline',
   })
 
-  // Only annotate notable grades in the move list; best/good are unremarkable.
   const GradeTag = ({ ply }) => {
     const g = grades?.[ply]
-    if (!g || g === 'best' || g === 'good') return null
+    if (!g) return null
     const { sym, color } = GRADES[g]
     return <span style={{ fontSize: 10, color, marginLeft: 1, fontWeight: 700, verticalAlign: 'super' }}>{sym}</span>
   }
