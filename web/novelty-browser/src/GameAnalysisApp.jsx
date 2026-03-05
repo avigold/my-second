@@ -313,7 +313,14 @@ function GameList({ jobId, selectedIndex, onSelect }) {
     })
     fetch(`/api/jobs/${jobId}/pgn-games?${params}`)
       .then(r => r.json())
-      .then(d => { setData(d); setLoading(false) })
+      .then(d => {
+        setData(d)
+        setLoading(false)
+        // Auto-select the first game on initial load (no game chosen yet).
+        if (selectedIndex == null && d.games?.length > 0) {
+          onSelect(d.games[0].index)
+        }
+      })
       .catch(() => setLoading(false))
   }, [jobId, page, debouncedQ, resultFilter])
 
