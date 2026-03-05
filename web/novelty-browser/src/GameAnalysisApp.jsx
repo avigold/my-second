@@ -9,15 +9,19 @@ import { Chess } from 'chess.js'
 // ---------------------------------------------------------------------------
 
 const GRADES = {
-  best:       { sym: '✓',  color: '#22c55e', label: 'Best'       },
-  excellent:  { sym: '!',  color: '#06b6d4', label: 'Excellent'  },
-  good:       { sym: '⊕',  color: '#60a5fa', label: 'Good'       },
-  inaccuracy: { sym: '?!', color: '#f59e0b', label: 'Inaccuracy' },
-  mistake:    { sym: '?',  color: '#f97316', label: 'Mistake'    },
-  blunder:    { sym: '??', color: '#ef4444', label: 'Blunder'    },
+  book:       { sym: '📖', color: '#64748b', label: 'Book',       showBadge: false },
+  best:       { sym: '✓',  color: '#22c55e', label: 'Best',       showBadge: false },
+  excellent:  { sym: '!',  color: '#06b6d4', label: 'Excellent',  showBadge: true  },
+  good:       { sym: '✓',  color: '#86efac', label: 'Good',       showBadge: false },
+  inaccuracy: { sym: '?!', color: '#f59e0b', label: 'Inaccuracy', showBadge: true  },
+  mistake:    { sym: '?',  color: '#f97316', label: 'Mistake',    showBadge: true  },
+  blunder:    { sym: '??', color: '#ef4444', label: 'Blunder',    showBadge: true  },
 }
 
-function gradeMove(cpLoss) {
+// plyIndex: 0-based half-move index (0 = before first move); early plies with negligible
+// centipawn loss are "book" moves.
+function gradeMove(cpLoss, plyIndex) {
+  if (plyIndex !== undefined && plyIndex <= 20 && cpLoss <= 5) return 'book'
   if (cpLoss <=   5) return 'best'
   if (cpLoss <=  15) return 'excellent'
   if (cpLoss <=  30) return 'good'
@@ -188,7 +192,7 @@ function useGameAnalysis(moves) {
       // cpAfter:  opponent's score after the move (opposite sign for mover).
       // Loss for the mover = cpBefore − (−cpAfter) = cpBefore + cpAfter.
       const loss = cpBefore + cpAfter
-      const grade = gradeMove(Math.max(0, loss))
+      const grade = gradeMove(Math.max(0, loss), i)
       if (!cancelled) setGrades(prev => ({ ...prev, [i]: grade }))
     }
 
@@ -483,9 +487,10 @@ function MoveList({ moves, currentPly, onPlySelect, grades }) {
     display: 'inline',
   })
 
+  // Only annotate notable grades in the move list; best/good are unremarkable.
   const GradeTag = ({ ply }) => {
     const g = grades?.[ply]
-    if (!g) return null
+    if (!g || g === 'best' || g === 'good') return null
     const { sym, color } = GRADES[g]
     return <span style={{ fontSize: 10, color, marginLeft: 1, fontWeight: 700, verticalAlign: 'super' }}>{sym}</span>
   }
@@ -500,7 +505,8 @@ function MoveList({ moves, currentPly, onPlySelect, grades }) {
       lineHeight: 1.8,
     }}>
       {pairs.map(({ moveNum, white, black }) => (
-        <span key={moveNum}>
+        // Wrap each pair in inline-flex so "1. e4 e5" never breaks across lines.
+        <span key={moveNum} style={{ display: 'inline-flex', alignItems: 'baseline', whiteSpace: 'nowrap', marginRight: 4 }}>
           <span style={{ color: '#6b7280', fontSize: 12, marginRight: 2 }}>{moveNum}.</span>
           {white && (
             <>
@@ -512,8 +518,7 @@ function MoveList({ moves, currentPly, onPlySelect, grades }) {
               <GradeTag ply={white.ply} />
             </>
           )}
-          {!white && <span style={{ color: '#6b7280', fontSize: 13 }}>…</span>}
-          {' '}
+          {!white && <span style={{ color: '#6b7280', fontSize: 13, marginRight: 2 }}>…</span>}
           {black && (
             <>
               <button
@@ -524,7 +529,6 @@ function MoveList({ moves, currentPly, onPlySelect, grades }) {
               <GradeTag ply={black.ply} />
             </>
           )}
-          {' '}
         </span>
       ))}
     </div>
@@ -665,7 +669,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
                 animation:   { enabled: true, duration: 150 },
               }}
             />
-            {currentGrade && moves[ply]?.uci && (() => {
+            {currentGrade && GRADES[currentGrade]?.showBadge && moves[ply]?.uci && (() => {
               const { left, top, sz } = squarePx(moves[ply].uci.slice(2, 4), boardSize, side)
               const { sym, color }    = GRADES[currentGrade]
               return (
@@ -785,6 +789,11 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
                           {/* Individual move chips */}
                           {ln.pvMoves.map((mv, pvIdx) => {
                             const isActiveMove = isActiveLine && pvState.pvPly === pvIdx + 1
+                            // First black move in PV needs move-number context (e.g. "1…e5").
+                            // Subsequent black moves are clear from position in the sequence.
+                            const label = mv.isWhite
+                              ? `${mv.moveNum}.${mv.san}`
+                              : pvIdx === 0 ? `${mv.moveNum}…${mv.san}` : mv.san
                             return (
                               <button
                                 key={pvIdx}
@@ -797,7 +806,7 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
                                   fontSize: 12, fontFamily: 'monospace',
                                 }}
                               >
-                                {mv.isWhite ? `${mv.moveNum}.` : ''}{mv.san}
+                                {label}
                               </button>
                             )
                           })}
