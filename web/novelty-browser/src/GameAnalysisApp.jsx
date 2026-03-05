@@ -5,6 +5,38 @@ import Chessground from '@react-chess/chessground'
 import { Chess } from 'chess.js'
 
 // ---------------------------------------------------------------------------
+// Move classification
+// ---------------------------------------------------------------------------
+
+const GRADES = {
+  best:       { sym: '✓',  color: '#22c55e', label: 'Best'       },
+  excellent:  { sym: '!',  color: '#06b6d4', label: 'Excellent'  },
+  good:       { sym: '⊕',  color: '#60a5fa', label: 'Good'       },
+  inaccuracy: { sym: '?!', color: '#f59e0b', label: 'Inaccuracy' },
+  mistake:    { sym: '?',  color: '#f97316', label: 'Mistake'    },
+  blunder:    { sym: '??', color: '#ef4444', label: 'Blunder'    },
+}
+
+function gradeMove(cpLoss) {
+  if (cpLoss <=   5) return 'best'
+  if (cpLoss <=  15) return 'excellent'
+  if (cpLoss <=  30) return 'good'
+  if (cpLoss <= 100) return 'inaccuracy'
+  if (cpLoss <= 250) return 'mistake'
+  return 'blunder'
+}
+
+// Return the pixel top-left of a square on a boardSize×boardSize board.
+function squarePx(sq, boardSize, orientation) {
+  const file = sq.charCodeAt(0) - 97   // a=0 … h=7
+  const rank = parseInt(sq[1]) - 1     // '1'→0, '8'→7
+  const sz   = boardSize / 8
+  const col  = orientation === 'white' ? file     : 7 - file
+  const row  = orientation === 'white' ? 7 - rank : rank
+  return { left: col * sz, top: row * sz, sz }
+}
+
+// ---------------------------------------------------------------------------
 // Stockfish WASM hook
 // ---------------------------------------------------------------------------
 
@@ -114,6 +146,94 @@ function useStockfish() {
   }, [])
 
   return { lines, analyse, stop }
+}
+
+// ---------------------------------------------------------------------------
+// Game analysis hook — grades every move at depth 12 in a background worker
+// ---------------------------------------------------------------------------
+
+function useGameAnalysis(moves) {
+  const workerRef   = useRef(null)
+  const evalsRef    = useRef([])    // evalsRef.current[ply] = {cp, isMate}
+  const lastInfoRef = useRef(null)  // last 'info depth' line
+  const [grades, setGrades]     = useState({})  // ply → grade string
+  const [progress, setProgress] = useState(0)   // 0..1
+
+  useEffect(() => {
+    // Clean up previous analysis.
+    workerRef.current?.terminate()
+    workerRef.current = null
+    evalsRef.current  = []
+    lastInfoRef.current = null
+    setGrades({})
+    setProgress(0)
+
+    if (!moves || moves.length < 2) return
+
+    let worker
+    try { worker = new Worker('/static/stockfish.js?v=18s') } catch (_) { return }
+
+    let cancelled = false
+    let plyIdx = 0
+
+    const evalToCP = (e) => e.isMate ? (e.cp > 0 ? 30000 : -30000) : e.cp
+
+    const addGrade = (i) => {
+      const ev = evalsRef.current
+      if (!ev[i] || !ev[i - 1] || !moves[i]) return
+      const cpBefore = evalToCP(ev[i - 1])
+      const cpAfter  = evalToCP(ev[i])
+      const loss = moves[i].color === 'white'
+        ? cpBefore - cpAfter   // white: eval should stay high
+        : cpAfter  - cpBefore  // black: eval should stay low (for white)
+      const grade = gradeMove(Math.max(0, loss))
+      if (!cancelled) setGrades(prev => ({ ...prev, [i]: grade }))
+    }
+
+    const sendNext = () => {
+      if (cancelled || plyIdx >= moves.length) {
+        if (!cancelled) setProgress(1)
+        worker.terminate()
+        return
+      }
+      worker.postMessage(`position fen ${moves[plyIdx].fen}`)
+      worker.postMessage('go depth 12')
+    }
+
+    worker.onmessage = ({ data }) => {
+      if (cancelled) return
+      const msg = typeof data === 'string' ? data : String(data)
+
+      if (msg === 'readyok') { sendNext(); return }
+
+      if (msg.startsWith('info depth')) { lastInfoRef.current = msg; return }
+
+      if (msg.startsWith('bestmove')) {
+        const info = lastInfoRef.current || ''
+        const cpM  = info.match(/score cp (-?\d+)/)
+        const mateM = info.match(/score mate (-?\d+)/)
+        evalsRef.current[plyIdx] = mateM
+          ? { cp: parseInt(mateM[1]) > 0 ? 30000 : -30000, isMate: true }
+          : { cp: cpM ? parseInt(cpM[1]) : 0, isMate: false }
+        lastInfoRef.current = null
+        plyIdx++
+        if (!cancelled) setProgress(plyIdx / moves.length)
+        if (plyIdx >= 2) addGrade(plyIdx - 1)
+        sendNext()
+      }
+    }
+
+    worker.onerror = () => { if (!cancelled) setProgress(1) }
+
+    workerRef.current = worker
+    worker.postMessage('uci')
+    worker.postMessage('setoption name MultiPV value 1')
+    worker.postMessage('isready')
+
+    return () => { cancelled = true; worker.terminate() }
+  }, [moves])
+
+  return { grades, progress }
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +445,7 @@ function EvalBar({ lines }) {
 // MoveList
 // ---------------------------------------------------------------------------
 
-function MoveList({ moves, currentPly, onPlySelect }) {
+function MoveList({ moves, currentPly, onPlySelect, grades }) {
   const listRef  = useRef(null)
   const activeRef = useRef(null)
 
@@ -361,6 +481,13 @@ function MoveList({ moves, currentPly, onPlySelect }) {
     display: 'inline',
   })
 
+  const GradeTag = ({ ply }) => {
+    const g = grades?.[ply]
+    if (!g) return null
+    const { sym, color } = GRADES[g]
+    return <span style={{ fontSize: 10, color, marginLeft: 1, fontWeight: 700, verticalAlign: 'super' }}>{sym}</span>
+  }
+
   return (
     <div ref={listRef} style={{
       overflowY: 'auto',
@@ -374,20 +501,26 @@ function MoveList({ moves, currentPly, onPlySelect }) {
         <span key={moveNum}>
           <span style={{ color: '#6b7280', fontSize: 12, marginRight: 2 }}>{moveNum}.</span>
           {white && (
-            <button
-              ref={currentPly === white.ply ? activeRef : null}
-              onClick={() => onPlySelect(white.ply)}
-              style={chipStyle(white.ply)}
-            >{white.san}</button>
+            <>
+              <button
+                ref={currentPly === white.ply ? activeRef : null}
+                onClick={() => onPlySelect(white.ply)}
+                style={chipStyle(white.ply)}
+              >{white.san}</button>
+              <GradeTag ply={white.ply} />
+            </>
           )}
           {!white && <span style={{ color: '#6b7280', fontSize: 13 }}>…</span>}
           {' '}
           {black && (
-            <button
-              ref={currentPly === black.ply ? activeRef : null}
-              onClick={() => onPlySelect(black.ply)}
-              style={chipStyle(black.ply)}
-            >{black.san}</button>
+            <>
+              <button
+                ref={currentPly === black.ply ? activeRef : null}
+                onClick={() => onPlySelect(black.ply)}
+                style={chipStyle(black.ply)}
+              >{black.san}</button>
+              <GradeTag ply={black.ply} />
+            </>
           )}
           {' '}
         </span>
@@ -409,7 +542,8 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
   // pvState: null = game mode  |  {lineIdx, pvPly, baseFen} = exploring an engine line
   const [pvState, setPvState]   = useState(null)
 
-  const { lines, analyse } = useStockfish()
+  const { lines, analyse }    = useStockfish()
+  const { grades, progress }  = useGameAnalysis(gameData?.moves)
 
   // Fetch game data when selection changes
   useEffect(() => {
@@ -474,8 +608,11 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
 
   const lastMoveUci = pvState
     ? (pvState.pvPly > 0 ? activePvMoves[pvState.pvPly - 1]?.uci : null)
-    : (ply > 0 ? moves[ply - 1]?.uci : null)
+    : (ply > 0 ? moves[ply]?.uci : null)   // moves[ply].uci is the move that reached position ply
   const lastMove = lastMoveUci ? [lastMoveUci.slice(0, 2), lastMoveUci.slice(2, 4)] : undefined
+
+  // Badge shown on the destination square after a move (game mode only)
+  const currentGrade = !pvState && ply > 0 ? grades[ply] : null
 
   const boardSize = Math.min(isMobile ? window.innerWidth - 24 : 420, 520)
 
@@ -511,19 +648,40 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', overflow: 'hidden', minHeight: 0 }}>
         {/* Board column */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 12, gap: 8, flexShrink: 0 }}>
-          <Chessground
-            width={boardSize}
-            height={boardSize}
-            config={{
-              fen:         boardFen,
-              orientation: side,
-              lastMove,
-              movable:     { free: false, color: 'none' },
-              draggable:   { enabled: false },
-              selectable:  { enabled: false },
-              animation:   { enabled: true, duration: 150 },
-            }}
-          />
+          {/* Board + badge overlay */}
+          <div style={{ position: 'relative', width: boardSize, height: boardSize }}>
+            <Chessground
+              width={boardSize}
+              height={boardSize}
+              config={{
+                fen:         boardFen,
+                orientation: side,
+                lastMove,
+                movable:     { free: false, color: 'none' },
+                draggable:   { enabled: false },
+                selectable:  { enabled: false },
+                animation:   { enabled: true, duration: 150 },
+              }}
+            />
+            {currentGrade && moves[ply]?.uci && (() => {
+              const { left, top, sz } = squarePx(moves[ply].uci.slice(2, 4), boardSize, side)
+              const { sym, color }    = GRADES[currentGrade]
+              return (
+                <div style={{
+                  position: 'absolute', pointerEvents: 'none',
+                  left: left + sz * 0.58, top: top + sz * 0.04,
+                  width: sz * 0.36, height: sz * 0.36,
+                  borderRadius: '50%', background: color,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: sz * 0.17, color: '#fff', fontWeight: 800,
+                  boxShadow: '0 1px 4px rgba(0,0,0,.7)',
+                  border: '1.5px solid rgba(0,0,0,.25)', zIndex: 10,
+                }}>
+                  {sym}
+                </div>
+              )
+            })()}
+          </div>
 
           {/* Nav controls */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -567,13 +725,31 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
               moves={moves}
               currentPly={pvState ? -1 : ply}
               onPlySelect={(p) => { setPvState(null); setPly(p) }}
+              grades={grades}
             />
+          )}
+          {/* Analysis progress bar */}
+          {progress > 0 && progress < 1 && (
+            <div style={{ padding: '4px 12px 2px', flexShrink: 0 }}>
+              <div style={{ height: 2, background: '#1f2937', borderRadius: 1 }}>
+                <div style={{ height: '100%', width: `${progress * 100}%`, background: '#3b82f6', borderRadius: 1, transition: 'width .2s' }} />
+              </div>
+            </div>
           )}
 
           {/* Engine panel */}
           <div style={{ flex: 1, padding: '10px 12px', overflow: 'auto' }}>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Engine lines {lines[0] ? <span style={{ color: '#374151' }}>· depth {lines[0].depth}</span> : null}
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>Engine lines {lines[0] ? <span style={{ color: '#374151' }}>· depth {lines[0].depth}</span> : null}</span>
+              {currentGrade && ['mistake', 'blunder', 'inaccuracy'].includes(currentGrade) && (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10,
+                  background: GRADES[currentGrade].color + '22',
+                  color: GRADES[currentGrade].color, textTransform: 'none', letterSpacing: 0,
+                }}>
+                  {GRADES[currentGrade].sym} {GRADES[currentGrade].label} — engine recommends ↓
+                </span>
+              )}
             </div>
             {lines.length === 0 ? (
               <div style={{ color: '#4b5563', fontSize: 13 }}>Analysing…</div>
