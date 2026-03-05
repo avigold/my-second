@@ -261,9 +261,12 @@ function useGameAnalysis(moves) {
 // ---------------------------------------------------------------------------
 
 function useIsMobile() {
-  const [mobile, setMobile] = useState(() => window.innerWidth < 768)
+  // Use 1024px as the breakpoint: portrait + landscape tablets get the
+  // stacked scrollable layout; only proper laptop/desktop widths get the
+  // side-by-side panel layout.
+  const [mobile, setMobile] = useState(() => window.innerWidth < 1024)
   useEffect(() => {
-    const fn = () => setMobile(window.innerWidth < 768)
+    const fn = () => setMobile(window.innerWidth < 1024)
     window.addEventListener('resize', fn)
     return () => window.removeEventListener('resize', fn)
   }, [])
@@ -718,10 +721,16 @@ function AnalysisPanel({ jobId, selectedIndex, side }) {
   // Orient the board from the fetched player's perspective for each game.
   const orientation = gameData?.player_color || side || 'white'
 
-  // Size the board to use most of the available viewport height on desktop.
+  // Size the board to use most of the available space without overflowing.
+  // On desktop constrain by both viewport height and the available width after
+  // the game list (280px) and the minimum engine panel (300px).
   const boardSize = isMobile
     ? window.innerWidth - 24
-    : Math.min(window.innerHeight - 150, 680)
+    : Math.min(
+        window.innerHeight - 150,          // height constraint
+        window.innerWidth - 280 - 300 - 24, // width constraint
+        680,                                // hard cap
+      )
 
   const topPlayer    = orientation === 'white' ? headers.Black : headers.White
   const bottomPlayer = orientation === 'white' ? headers.White : headers.Black
