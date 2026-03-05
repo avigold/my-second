@@ -17,6 +17,7 @@ cross-checked against Mega before committing a novelty to serious play.
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -27,10 +28,16 @@ from .models import ExplorerData, MoveStats
 
 _LICHESS_MASTERS_URL = "https://explorer.lichess.ovh/masters"
 _DEFAULT_BACKEND = "lichess_masters"
-_HEADERS = {
-    "Accept": "application/json",
-    "User-Agent": "mysecond/0.1.0",
-}
+
+def _build_headers() -> dict[str, str]:
+    h = {
+        "Accept": "application/json",
+        "User-Agent": "mysecond/0.1.0",
+    }
+    token = os.environ.get("LICHESS_API_TOKEN", "").strip()
+    if token:
+        h["Authorization"] = f"Bearer {token}"
+    return h
 
 
 class LichessExplorer:
@@ -44,7 +51,7 @@ class LichessExplorer:
         self._cache = cache
         self._backend = backend
         self._session = requests.Session()
-        self._session.headers.update(_HEADERS)
+        self._session.headers.update(_build_headers())
 
     # ------------------------------------------------------------------
     # Public API

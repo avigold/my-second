@@ -3,6 +3,12 @@ import React, {
 } from 'react'
 import Chessground from '@react-chess/chessground'
 import { Chess } from 'chess.js'
+import ECO_FENS_ARRAY from './eco_fens.json'
+
+// Build a Set once for O(1) lookups.  FENs in the database are stored as EPD
+// (FEN without the halfmove-clock and fullmove-number fields) so we normalise
+// the same way before checking.
+const ECO_SET = new Set(ECO_FENS_ARRAY)
 
 // ---------------------------------------------------------------------------
 // Move classification
@@ -310,7 +316,11 @@ function GameList({ jobId, selectedIndex, onSelect, page, onPageChange }) {
 
   const debouncedQ = useDebounce(q, 300)
 
+  // Reset to page 1 when filters change, but NOT on initial mount (which would
+  // override the page value restored from the URL query param).
+  const didMountRef = useRef(false)
   useEffect(() => {
+    if (!didMountRef.current) { didMountRef.current = true; return }
     onPageChange(1)
   }, [debouncedQ, resultFilter])
 
@@ -567,51 +577,27 @@ function MoveList({ moves, currentPly, onPlySelect, grades, maxHeight }) {
 }
 
 // ---------------------------------------------------------------------------
-// Opening book detection — Lichess explorer API
+// Opening book detection — local ECO database (no external API needed)
 // ---------------------------------------------------------------------------
 
-// A position reached by ≥BOOK_THRESHOLD rated Lichess games is "in book".
-const BOOK_THRESHOLD  = 1000
-const BOOK_CHECK_PLIES = 26   // check starting position + first 25 half-moves
+// A move is "in book" if its resulting position appears in the Lichess
+// chess-openings ECO dataset (lichess-org/chess-openings on GitHub).
+// Positions are stored as EPD (FEN minus the halfmove-clock and fullmove-number
+// fields) so we normalise each FEN to EPD before looking it up.
+function fenToEpd(fen) {
+  return fen ? fen.split(' ').slice(0, 4).join(' ') : null
+}
 
 function useBookPlies(moves) {
-  const [bookPlies, setBookPlies] = useState(new Set())
-
-  useEffect(() => {
-    if (!moves || moves.length < 2) return
-    setBookPlies(new Set())
-    let cancelled = false
-
-    const checkUntil = Math.min(moves.length, BOOK_CHECK_PLIES)
-    const requests = Array.from({ length: checkUntil }, (_, i) => {
-      const fen = moves[i]?.fen
-      if (!fen) return Promise.resolve(null)
-      // No speed/rating filters — those restrict to specific Elo buckets and
-      // can reduce a common Scandinavian position from millions of games to a
-      // few hundred, pushing it below the threshold.  The full database total
-      // is the most reliable signal that a position is established theory.
-      const url =
-        `https://explorer.lichess.ovh/lichess?fen=${encodeURIComponent(fen)}` +
-        `&topGames=0&recentGames=0`
-      return fetch(url)
-        .then(r => r.ok ? r.json() : null)
-        .then(d => d ? { i, count: (d.white || 0) + (d.draws || 0) + (d.black || 0) } : null)
-        .catch(() => null)
-    })
-
-    Promise.all(requests).then(results => {
-      if (cancelled) return
-      const s = new Set()
-      for (const r of results) {
-        if (r && r.count >= BOOK_THRESHOLD) s.add(r.i)
-      }
-      setBookPlies(s)
-    })
-
-    return () => { cancelled = true }
+  return useMemo(() => {
+    const s = new Set()
+    if (!moves || moves.length < 2) return s
+    for (let i = 1; i < moves.length; i++) {
+      const epd = fenToEpd(moves[i]?.fen)
+      if (epd && ECO_SET.has(epd)) s.add(i)
+    }
+    return s
   }, [moves])
-
-  return bookPlies
 }
 
 // ---------------------------------------------------------------------------
