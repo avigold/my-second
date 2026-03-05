@@ -18,10 +18,7 @@ const GRADES = {
   blunder:    { sym: '??', color: '#ef4444', label: 'Blunder',    showBadge: true  },
 }
 
-// plyIndex: 0-based half-move index (0 = before first move); early plies with negligible
-// centipawn loss are "book" moves.
-function gradeMove(cpLoss, plyIndex) {
-  if (plyIndex !== undefined && plyIndex <= 20 && cpLoss <= 5) return 'book'
+function gradeMove(cpLoss) {
   if (cpLoss <=   5) return 'best'
   if (cpLoss <=  15) return 'excellent'
   if (cpLoss <=  30) return 'good'
@@ -179,6 +176,10 @@ function useGameAnalysis(moves) {
 
     let cancelled = false
     let plyIdx = 0
+    // Track whether we're still in book theory.  We stay in book as long as every
+    // move in the first 20 plies has ≤20cp loss.  The first move that exceeds that
+    // threshold exits book mode — all subsequent moves are graded normally.
+    let inBook = true
 
     const evalToCP = (e) => e.isMate ? (e.cp > 0 ? 30000 : -30000) : e.cp
 
@@ -188,11 +189,17 @@ function useGameAnalysis(moves) {
       const cpBefore = evalToCP(ev[i - 1])
       const cpAfter  = evalToCP(ev[i])
       // UCI score is always from the side-to-move's perspective.
-      // cpBefore: mover's score before the move.
-      // cpAfter:  opponent's score after the move (opposite sign for mover).
       // Loss for the mover = cpBefore − (−cpAfter) = cpBefore + cpAfter.
-      const loss = cpBefore + cpAfter
-      const grade = gradeMove(Math.max(0, loss), i)
+      const loss = Math.max(0, cpBefore + cpAfter)
+
+      let grade
+      if (inBook && i <= 20 && loss <= 20) {
+        // Still in opening theory — don't penalise small inaccuracies.
+        grade = 'book'
+      } else {
+        if (i <= 20) inBook = false   // first significant deviation exits book mode
+        grade = gradeMove(loss)
+      }
       if (!cancelled) setGrades(prev => ({ ...prev, [i]: grade }))
     }
 
