@@ -125,10 +125,15 @@ def _do_launch(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") 
 
     def _reader() -> None:
         assert proc.stdout is not None
+        lines_since_flush = 0
         for raw_line in proc.stdout:
             line = raw_line.rstrip("\n")
             job.log_lines.append(line)
             job.queue.put(line)
+            lines_since_flush += 1
+            if lines_since_flush >= 20:
+                registry.flush_log(job.id, job.log_lines.copy())
+                lines_since_flush = 0
         proc.wait()
         exit_code = proc.returncode
         # Preserve "cancelled" if the cancel endpoint already set it.

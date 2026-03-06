@@ -323,6 +323,15 @@ class JobRegistry:
             cur.execute("UPDATE jobs SET out_path = %s WHERE id = %s", (out_path, job_id))
             conn.commit()
 
+    def flush_log(self, job_id: str, log_lines: list[str]) -> None:
+        """Flush the current log lines to DB so they survive a server restart."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET log_text = %s WHERE id = %s",
+                ("\n".join(log_lines) if log_lines else None, job_id),
+            )
+            conn.commit()
+
     def mark_cancelled(self, job_id: str) -> bool:
         """Mark a running or queued job as cancelled.
         Returns True if the job existed and was running or queued."""
@@ -778,6 +787,8 @@ def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
                 registry.update_status(job.id, row[0])
                 job.queue.put(None)
                 return
+            # Don't overwrite any log the subprocess actually produced.
+            # job.log_lines was loaded from DB at startup — preserve it as-is.
             registry.update_status(job.id, "failed", exit_code=-1)
             job.queue.put(None)
             return
