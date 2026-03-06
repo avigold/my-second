@@ -125,15 +125,16 @@ def _do_launch(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") 
 
     def _reader() -> None:
         assert proc.stdout is not None
-        lines_since_flush = 0
+        early_flushed = False
         for raw_line in proc.stdout:
             line = raw_line.rstrip("\n")
             job.log_lines.append(line)
             job.queue.put(line)
-            lines_since_flush += 1
-            if lines_since_flush >= 20:
+            if not early_flushed:
+                # Flush after the first line so early errors (e.g. bad username)
+                # survive a server restart without needing ongoing periodic writes.
                 registry.flush_log(job.id, job.log_lines.copy())
-                lines_since_flush = 0
+                early_flushed = True
         proc.wait()
         exit_code = proc.returncode
         # Preserve "cancelled" if the cancel endpoint already set it.
