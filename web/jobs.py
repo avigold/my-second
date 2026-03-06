@@ -749,22 +749,37 @@ def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
     out = Path(job.out_path) if job.out_path else None
     pid = job.pid
 
-    job.log_lines.append("[recovery] Reconnected to orphaned subprocess after server restart.")
-    job.queue.put("[recovery] Reconnected to orphaned subprocess after server restart.")
-
     while True:
-        if out and out.exists() and out.stat().st_size > 0:
-            job.log_lines.append("[recovery] Output file found — job completed successfully.")
-            job.queue.put("[recovery] Output file found — job completed successfully.")
-            job.queue.put(None)  # SSE sentinel
+        # Output file exists → success.  We intentionally do NOT require
+        # st_size > 0 because a fetch that finds 0 games writes an empty
+        # PGN file and exits 0 — that is a legitimate success.
+        if out and out.exists():
             registry.update_status(job.id, "done", exit_code=0)
+            job.queue.put(None)  # SSE sentinel
             return
 
         if pid and not _pid_alive(pid):
-            job.log_lines.append("[recovery] Subprocess exited without producing output.")
-            job.queue.put("[recovery] Subprocess exited without producing output.")
-            job.queue.put(None)
+            # Process is gone.  Wait briefly in case the file is still
+            # being flushed to disk, then do one final file check before
+            # giving up.
+            time.sleep(2)
+            if out and out.exists():
+                registry.update_status(job.id, "done", exit_code=0)
+                job.queue.put(None)
+                return
+            # No out_path or file never appeared — mark done if the DB was
+            # already updated by the reader thread on the other worker,
+            # otherwise fall through to failed.
+            with registry._conn() as conn, conn.cursor() as cur:
+                cur.execute("SELECT status FROM jobs WHERE id = %s", (job.id,))
+                row = cur.fetchone()
+            if row and row[0] in ("done", "cancelled"):
+                # Another worker already resolved this job; just refresh memory.
+                registry.update_status(job.id, row[0])
+                job.queue.put(None)
+                return
             registry.update_status(job.id, "failed", exit_code=-1)
+            job.queue.put(None)
             return
 
         time.sleep(3)
