@@ -276,6 +276,7 @@ def api_fetch():
     params = request.get_json(force=True)
     if not params.get("username") or not params.get("color"):
         return jsonify({"error": "username and color are required"}), 400
+    params["username"] = params["username"].strip()
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
@@ -593,6 +594,7 @@ def api_repertoire():
     params = request.get_json(force=True)
     if not params.get("username") or not params.get("color"):
         return jsonify({"error": "username and color are required"}), 400
+    params["username"] = params["username"].strip()
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
@@ -907,6 +909,7 @@ def api_habits():
     params = request.get_json(force=True)
     if not params.get("username") or not params.get("color"):
         return jsonify({"error": "username and color are required"}), 400
+    params["username"] = params["username"].strip()
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
@@ -936,6 +939,8 @@ def api_strategise():
     params = request.get_json(force=True)
     if not params.get("player") or not params.get("player_color") or not params.get("opponent"):
         return jsonify({"error": "player, player_color, and opponent are required"}), 400
+    params["player"]   = params["player"].strip()
+    params["opponent"] = params["opponent"].strip()
 
     # Never store the API key in params — the CLI subprocess reads it from
     # ANTHROPIC_API_KEY which it inherits from the gunicorn process environment.
