@@ -332,6 +332,35 @@ class JobRegistry:
             )
             conn.commit()
 
+    def resolve_orphan(self, job_id: str, status: str, exit_code: int) -> None:
+        """Mark an orphaned job done/failed without touching log_text.
+
+        The orphan watcher runs on a different worker than the one that
+        launched the job.  That worker's reader thread may have already
+        written the real log to DB.  Using a targeted UPDATE (no log_text
+        column) prevents the stale in-memory log_lines from overwriting it.
+        The WHERE status='running' guard ensures we lose no data if the
+        reader thread on the other worker already resolved the job.
+        """
+        now = datetime.now(tz=timezone.utc)
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE jobs
+                   SET status = %s, exit_code = %s, finished_at = %s
+                 WHERE id = %s AND status = 'running'
+                """,
+                (status, exit_code, now, job_id),
+            )
+            conn.commit()
+        # Sync in-memory state regardless of whether the UPDATE fired.
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job:
+                job.status = status
+                job.exit_code = exit_code
+                job.finished_at = now
+
     def mark_cancelled(self, job_id: str) -> bool:
         """Mark a running or queued job as cancelled.
         Returns True if the job existed and was running or queued."""
@@ -763,7 +792,7 @@ def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
         # st_size > 0 because a fetch that finds 0 games writes an empty
         # PGN file and exits 0 — that is a legitimate success.
         if out and out.exists():
-            registry.update_status(job.id, "done", exit_code=0)
+            registry.resolve_orphan(job.id, "done", 0)
             job.queue.put(None)  # SSE sentinel
             return
 
@@ -773,23 +802,16 @@ def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
             # giving up.
             time.sleep(2)
             if out and out.exists():
-                registry.update_status(job.id, "done", exit_code=0)
+                registry.resolve_orphan(job.id, "done", exit_code=0)
                 job.queue.put(None)
                 return
-            # No out_path or file never appeared — mark done if the DB was
-            # already updated by the reader thread on the other worker,
-            # otherwise fall through to failed.
-            with registry._conn() as conn, conn.cursor() as cur:
-                cur.execute("SELECT status FROM jobs WHERE id = %s", (job.id,))
-                row = cur.fetchone()
-            if row and row[0] in ("done", "cancelled"):
-                # Another worker already resolved this job; just refresh memory.
-                registry.update_status(job.id, row[0])
-                job.queue.put(None)
-                return
-            # Don't overwrite any log the subprocess actually produced.
-            # job.log_lines was loaded from DB at startup — preserve it as-is.
-            registry.update_status(job.id, "failed", exit_code=-1)
+            # Use resolve_orphan (not update_status) so we never overwrite
+            # log_text.  The real reader thread on another worker may have
+            # already persisted the actual subprocess output; we must not
+            # clobber it with our stale in-memory log_lines.
+            # WHERE status='running' in resolve_orphan means this is a no-op
+            # if the other worker already resolved the job.
+            registry.resolve_orphan(job.id, "failed", -1)
             job.queue.put(None)
             return
 
