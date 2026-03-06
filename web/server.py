@@ -299,10 +299,10 @@ def api_search():
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
     if err := _check_plan_limit(user, "search"): return err
-    out_path = str(OUTPUT_DIR / f"{params.get('side', 'white')}_ideas.pgn")
-    job = registry.create("search", params, out_path=out_path, user_id=user["id"] if user else None)
+    job = registry.create("search", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
-    job.out_path = out_path  # update before subprocess starts
+    job.out_path = out_path
+    registry.set_out_path(job.id, out_path)  # persist immediately — orphan recovery needs this
 
     argv = build_search_argv(params, out_path)
     job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
@@ -602,6 +602,7 @@ def api_repertoire():
     job = registry.create("repertoire", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path
+    registry.set_out_path(job.id, out_path)  # persist immediately — orphan recovery needs this
 
     argv = build_repertoire_argv(params, out_path)
     job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
@@ -917,6 +918,7 @@ def api_habits():
     job = registry.create("habits", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
     job.out_path = out_path
+    registry.set_out_path(job.id, out_path)  # persist immediately — orphan recovery needs this
 
     argv = build_habits_argv(params, out_path)
     job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
@@ -952,6 +954,7 @@ def api_strategise():
     job = registry.create("strategise", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.json")
     job.out_path = out_path
+    registry.set_out_path(job.id, out_path)  # persist immediately — orphan recovery needs this
 
     argv = build_strategise_argv(params, out_path)
     job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
