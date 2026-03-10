@@ -150,7 +150,9 @@ function renderJobList(jobs) {
       ? `${j.params.username} / ${j.params.color} — repertoire (${j.params.platform || 'lichess'})`
       : j.command === 'strategise'
       ? `${j.params.player} (${j.params.player_color || '?'}) vs ${j.params.opponent}`
-      : `${j.params.side} | player=${j.params.player || '—'} opp=${j.params.opponent || '—'}`;
+      : j.command === 'train-bot'
+      ? `${j.params.opponent_username} (${j.params.platform || 'lichess'}) — bot training`
+      : `${j.command} job`;
     const download = j.status === 'done' && j.out_path
       ? `<a href="/api/jobs/${j.id}/download" class="text-amber-400 text-xs hover:underline ml-2">↓ PGN</a>`
       : '';
@@ -167,6 +169,9 @@ function renderJobList(jobs) {
     } else if (j.command === 'strategise') {
       avatarUser     = j.params.player || '';
       avatarPlatform = j.params.player_platform || 'lichess';
+    } else if (j.command === 'train-bot') {
+      avatarUser     = j.params.opponent_username || '';
+      avatarPlatform = j.params.platform || 'lichess';
     } else {
       avatarUser     = j.params.username || '';
       avatarPlatform = j.params.platform || 'lichess';
