@@ -1233,6 +1233,18 @@ def api_create_bot():
     return jsonify({"bot_id": bot_id, "job_id": job.id})
 
 
+@app.delete("/api/bots/<bot_id>")
+def api_delete_bot(bot_id: str):
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "login required"}), 401
+    deleted = bot_manager.delete(bot_id, user["id"])
+    if not deleted:
+        return jsonify({"error": "bot not found"}), 404
+    _bot_model_cache.pop(bot_id, None)
+    return jsonify({"ok": True})
+
+
 # In-memory cache for loaded bot models (bot_id → dict).
 _bot_model_cache: dict[str, dict] = {}
 

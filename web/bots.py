@@ -76,6 +76,17 @@ class BotManager:
                 )
             conn.commit()
 
+    def delete(self, bot_id: str, user_id: str) -> bool:
+        """Delete a bot row. Returns True if a row was deleted."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM bots WHERE id = %s AND user_id = %s",
+                (bot_id, user_id),
+            )
+            deleted = cur.rowcount > 0
+            conn.commit()
+        return deleted
+
     # ------------------------------------------------------------------
     # Read operations
     # ------------------------------------------------------------------
