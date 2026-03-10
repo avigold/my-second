@@ -16,22 +16,35 @@ function useIsMobile(bp = 640) {
   return v
 }
 
-function getLegalDests(chess) {
-  const dests = new Map()
-  const color = chess.turn() === 'w' ? 'w' : 'b'
-  for (const sq of chess.board().flat()) {
-    if (!sq || sq.color !== color) continue
-    const moves = chess.moves({ square: sq.square, verbose: true })
-    if (moves.length > 0) dests.set(sq.square, moves.map(m => m.to))
+// Create a fresh Chess instance from FEN to get legal destinations.
+// Mirrors HabitsPracticeBoard — avoids shared-mutable-state bugs.
+function getLegalDests(fen, playerColor) {
+  try {
+    const chess = new Chess(fen)
+    const color = playerColor === 'white' ? 'w' : 'b'
+    const dests = new Map()
+    for (const sq of chess.board().flat()) {
+      if (!sq || sq.color !== color) continue
+      const moves = chess.moves({ square: sq.square, verbose: true })
+      if (moves.length > 0) dests.set(sq.square, moves.map(m => m.to))
+    }
+    return dests
+  } catch {
+    return new Map()
   }
-  return dests
 }
 
-function applyUci(chess, uci) {
-  const from = uci.slice(0, 2)
-  const to   = uci.slice(2, 4)
-  const promo = uci[4] || undefined
-  return chess.move({ from, to, promotion: promo || 'q' })
+function applyUciToFen(fen, uci) {
+  try {
+    const chess = new Chess(fen)
+    const from  = uci.slice(0, 2)
+    const to    = uci.slice(2, 4)
+    const promo = uci[4] || undefined
+    const move  = chess.move({ from, to, promotion: promo || 'q' })
+    return move ? { fen: chess.fen(), chess } : null
+  } catch {
+    return null
+  }
 }
 
 function randomColor() {
@@ -53,15 +66,14 @@ export default function BotPracticeApp({ botId }) {
   const [bot, setBot]               = useState(null)
   const [error, setError]           = useState(null)
   const [userColor, setUserColor]   = useState('white')
-  const [colorChoice, setColorChoice] = useState('white')  // 'white'|'black'|'random'
-  const [chess]                     = useState(() => new Chess())
+  const [colorChoice, setColorChoice] = useState('white')
   const [fen, setFen]               = useState(STARTING_FEN)
   const [lastMove, setLastMove]     = useState(null)
   const [thinking, setThinking]     = useState(false)
-  const [gameOver, setGameOver]     = useState(null)   // null | 'checkmate' | 'draw' | 'stalemate'
+  const [gameOver, setGameOver]     = useState(null)
   const [resetKey, setResetKey]     = useState(0)
-  const [moveSource, setMoveSource] = useState(null)   // last bot move source tag
-  const thinkingRef = useRef(false)   // prevent double-firing
+  const [moveSource, setMoveSource] = useState(null)
+  const thinkingRef = useRef(false)
 
   // Fetch bot metadata once on mount.
   useEffect(() => {
@@ -71,9 +83,8 @@ export default function BotPracticeApp({ botId }) {
       .catch(err => setError(err.message))
   }, [botId])
 
-  // Start a new game whenever userColor changes.
+  // Reset board state whenever userColor changes.
   useEffect(() => {
-    chess.reset()
     setFen(STARTING_FEN)
     setLastMove(null)
     setGameOver(null)
@@ -83,16 +94,10 @@ export default function BotPracticeApp({ botId }) {
     setThinking(false)
   }, [userColor])
 
-  // If the bot moves first (user chose black), trigger the bot's opening move.
-  useEffect(() => {
-    if (chess.fen() !== STARTING_FEN) return
-    if (userColor === 'black' && !thinking) {
-      triggerBotMove()
-    }
-  }, [userColor, resetKey])   // eslint-disable-line react-hooks/exhaustive-deps
-
-  const triggerBotMove = useCallback(async (currentFen) => {
-    const fenToSend = currentFen || chess.fen()
+  // ---------------------------------------------------------------------------
+  // Bot move (async). Takes the FEN to query and the FEN to revert to on error.
+  // ---------------------------------------------------------------------------
+  const triggerBotMove = useCallback(async (currentFen, prevFen) => {
     const botColor = userColor === 'white' ? 'black' : 'white'
     if (thinkingRef.current) return
     thinkingRef.current = true
@@ -103,66 +108,82 @@ export default function BotPracticeApp({ botId }) {
       const res = await fetch(`/api/bots/${botId}/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fen: fenToSend, color: botColor }),
+        body: JSON.stringify({ fen: currentFen, color: botColor }),
       })
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        console.error('Bot move error:', err)
+        // Revert to position before the user's move so they can try again.
+        if (prevFen != null) setFen(prevFen)
         return
       }
       const data = await res.json()
-      const move = applyUci(chess, data.uci)
-      if (!move) return
-      const newFen = chess.fen()
+      const result = applyUciToFen(currentFen, data.uci)
+      if (!result) {
+        if (prevFen != null) setFen(prevFen)
+        return
+      }
+      const { fen: newFen, chess: c } = result
       setFen(newFen)
       setLastMove([data.uci.slice(0, 2), data.uci.slice(2, 4)])
       setMoveSource(data.source)
-      if (chess.isGameOver()) {
+      if (c.isGameOver()) {
         setGameOver(
-          chess.isCheckmate() ? 'checkmate'
-          : chess.isStalemate() ? 'stalemate'
+          c.isCheckmate() ? 'checkmate'
+          : c.isStalemate() ? 'stalemate'
           : 'draw'
         )
       }
     } catch (e) {
-      console.error('Bot move fetch error:', e)
+      console.error('Bot move error:', e)
+      if (prevFen != null) setFen(prevFen)
     } finally {
       thinkingRef.current = false
       setThinking(false)
     }
-  }, [botId, userColor, chess])
+  }, [botId, userColor])
 
-  const handleUserMove = useCallback((orig, dest) => {
-    if (thinking) return
-    if (gameOver) return
-    // Validate it's the user's turn.
-    const turnColor = chess.turn() === 'w' ? 'white' : 'black'
+  // Trigger bot's first move when user chose black.
+  useEffect(() => {
+    if (fen !== STARTING_FEN) return
+    if (userColor === 'black' && !thinkingRef.current) {
+      triggerBotMove(STARTING_FEN, null)
+    }
+  }, [userColor, resetKey])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------------------------------------------------------------------------
+  // User move handler
+  // ---------------------------------------------------------------------------
+  const handleUserMove = (orig, dest) => {
+    if (thinking || gameOver) return
+    const c = new Chess(fen)
+    const turnColor = c.turn() === 'w' ? 'white' : 'black'
     if (turnColor !== userColor) return
 
-    const move = chess.move({ from: orig, to: dest, promotion: 'q' })
+    const move = c.move({ from: orig, to: dest, promotion: 'q' })
     if (!move) return
-    const newFen = chess.fen()
+
+    const prevFen = fen        // save for bot-error recovery
+    const newFen  = c.fen()
     setFen(newFen)
     setLastMove([orig, dest])
     setMoveSource(null)
 
-    if (chess.isGameOver()) {
+    if (c.isGameOver()) {
       setGameOver(
-        chess.isCheckmate() ? 'checkmate'
-        : chess.isStalemate() ? 'stalemate'
+        c.isCheckmate() ? 'checkmate'
+        : c.isStalemate() ? 'stalemate'
         : 'draw'
       )
       return
     }
-    // Trigger bot response.
-    triggerBotMove(newFen)
-  }, [chess, thinking, gameOver, userColor, triggerBotMove])
+    triggerBotMove(newFen, prevFen)
+  }
 
+  // ---------------------------------------------------------------------------
+  // New game
+  // ---------------------------------------------------------------------------
   const handleNewGame = useCallback(() => {
     const newColor = colorChoice === 'random' ? randomColor() : colorChoice
     if (newColor === userColor) {
-      // Force re-trigger by incrementing resetKey.
-      chess.reset()
       setFen(STARTING_FEN)
       setLastMove(null)
       setGameOver(null)
@@ -170,18 +191,19 @@ export default function BotPracticeApp({ botId }) {
       setResetKey(k => k + 1)
       thinkingRef.current = false
       setThinking(false)
-      if (newColor === 'black') triggerBotMove(STARTING_FEN)
+      if (newColor === 'black') triggerBotMove(STARTING_FEN, null)
     } else {
       setUserColor(newColor)
     }
-  }, [colorChoice, userColor, chess, triggerBotMove])
+  }, [colorChoice, userColor, triggerBotMove])
 
+  // ---------------------------------------------------------------------------
+  // Chessground config
+  // ---------------------------------------------------------------------------
   const legalDests = useMemo(() => {
     if (thinking || gameOver) return new Map()
-    const turnColor = chess.turn() === 'w' ? 'white' : 'black'
-    if (turnColor !== userColor) return new Map()
-    return getLegalDests(chess)
-  }, [fen, thinking, gameOver, userColor])   // eslint-disable-line react-hooks/exhaustive-deps
+    return getLegalDests(fen, userColor)
+  }, [fen, thinking, gameOver, userColor])
 
   const cgConfig = {
     fen,
@@ -206,13 +228,14 @@ export default function BotPracticeApp({ botId }) {
     <div style={{ padding: 32, color: '#9ca3af' }}>Loading…</div>
   )
 
-  const botColor = userColor === 'white' ? 'black' : 'white'
-
   const sourceLabel = {
     opening: { text: 'Opening', color: '#60a5fa' },
     habit:   { text: 'Habit!',  color: '#f87171' },
     engine:  { text: 'Engine',  color: '#9ca3af' },
   }
+
+  // For checkmate banner: whose turn is it in the final position?
+  const finalTurn = (() => { try { return new Chess(fen).turn() } catch { return 'w' } })()
 
   return (
     <div style={{
@@ -251,10 +274,8 @@ export default function BotPracticeApp({ botId }) {
 
         {/* --- Left/top panel: bot info + controls --- */}
         {isMobile ? (
-          // Mobile: info inline above board
           <MobileInfoBar
             bot={bot}
-            userColor={userColor}
             colorChoice={colorChoice}
             setColorChoice={setColorChoice}
             onNewGame={handleNewGame}
@@ -265,7 +286,6 @@ export default function BotPracticeApp({ botId }) {
         ) : (
           <SidePanel
             bot={bot}
-            userColor={userColor}
             colorChoice={colorChoice}
             setColorChoice={setColorChoice}
             onNewGame={handleNewGame}
@@ -310,7 +330,7 @@ export default function BotPracticeApp({ botId }) {
             }}>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>
                 {gameOver === 'checkmate'
-                  ? (chess.turn() === (userColor === 'white' ? 'w' : 'b')
+                  ? (finalTurn === (userColor === 'white' ? 'w' : 'b')
                       ? 'You were checkmated'
                       : 'You checkmated the bot!')
                   : gameOver === 'stalemate' ? 'Stalemate — draw'
@@ -338,7 +358,7 @@ export default function BotPracticeApp({ botId }) {
 // ---------------------------------------------------------------------------
 // Side panel (desktop)
 // ---------------------------------------------------------------------------
-function SidePanel({ bot, userColor, colorChoice, setColorChoice, onNewGame, thinking, moveSource, sourceLabel }) {
+function SidePanel({ bot, colorChoice, setColorChoice, onNewGame, thinking, moveSource, sourceLabel }) {
   return (
     <div style={{
       width: 220, flexShrink: 0,
