@@ -91,22 +91,42 @@ def build_search_argv(params: dict, out_path: str) -> list[str]:
     return cmd
 
 
-def make_launch_fn(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry"):
+def make_launch_fn(
+    job: "Job",
+    argv: list[str],
+    cwd: Path,
+    registry: "JobRegistry",
+    completion_callback=None,
+):
     """Return a zero-argument callable that starts the subprocess for job.
 
     The caller (JobQueue) invokes this when a slot is available.
+    completion_callback, if provided, is called as ``callback(status, exit_code)``
+    after the job finishes (useful for updating related records, e.g. bots).
     """
     def _launch() -> None:
-        _do_launch(job, argv, cwd, registry)
+        _do_launch(job, argv, cwd, registry, completion_callback=completion_callback)
     return _launch
 
 
-def launch_job(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") -> None:
+def launch_job(
+    job: "Job",
+    argv: list[str],
+    cwd: Path,
+    registry: "JobRegistry",
+    completion_callback=None,
+) -> None:
     """Immediately start a subprocess (used for light jobs that bypass the queue)."""
-    _do_launch(job, argv, cwd, registry)
+    _do_launch(job, argv, cwd, registry, completion_callback=completion_callback)
 
 
-def _do_launch(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") -> None:
+def _do_launch(
+    job: "Job",
+    argv: list[str],
+    cwd: Path,
+    registry: "JobRegistry",
+    completion_callback=None,
+) -> None:
     """Internal: actually spawn the subprocess and start the reader thread."""
     proc = subprocess.Popen(
         argv,
@@ -143,6 +163,11 @@ def _do_launch(job: "Job", argv: list[str], cwd: Path, registry: "JobRegistry") 
         )
         job.queue.put(None)  # sentinel — SSE generator will close
         registry.update_status(job.id, status, exit_code=exit_code)
+        if completion_callback is not None:
+            try:
+                completion_callback(status, exit_code)
+            except Exception:
+                pass  # never let a callback crash the reader thread
 
     t = threading.Thread(target=_reader, daemon=True)
     t.start()
@@ -222,4 +247,18 @@ def build_import_argv(params: dict, pgn_path: str) -> list[str]:
     cmd += ["--color", params["color"]]
     if params.get("max_plies"):
         cmd += ["--max-plies", str(params["max_plies"])]
+    return cmd
+
+
+def build_train_bot_argv(params: dict, out_path: str) -> list[str]:
+    """Build the argv list for ``mysecond train-bot``."""
+    cmd = [_mysecond_bin(), "train-bot"]
+    cmd += ["--opponent", params["opponent_username"]]
+    cmd += ["--out", out_path]
+    if params.get("platform"):
+        cmd += ["--platform", params["platform"]]
+    if params.get("speeds"):
+        cmd += ["--speeds", params["speeds"]]
+    if params.get("color"):
+        cmd += ["--color", params["color"]]
     return cmd

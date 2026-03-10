@@ -37,11 +37,13 @@ from auth import (
     set_session_user,
 )
 
+from bots import BotManager
 from habits_parser import parse_habits
 from jobs import Job, JobRegistry
+import maia_engine
 from pgn_parser import parse_novelties
 from repertoire_parser import parse_repertoire
-from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, build_strategise_argv, launch_job, make_launch_fn
+from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, build_strategise_argv, build_train_bot_argv, launch_job, make_launch_fn
 from jobs import JobQueue
 
 # ---------------------------------------------------------------------------
@@ -80,6 +82,11 @@ if "connect_timeout" not in DATABASE_URL:
 
 registry = JobRegistry(DATABASE_URL)
 job_queue = JobQueue()
+bot_manager = BotManager(DATABASE_URL)
+
+# Opening-book cache for bot move lookup (same SQLite file as the CLI uses).
+from mysecond.cache import Cache as _OpeningCache
+_opening_cache = _OpeningCache(DATA_DIR / "cache.sqlite")
 
 DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 
@@ -1121,6 +1128,213 @@ def api_pgn_game_detail(job_id: str, index: int):
         "player_color": player_color,
         "moves":        moves,
     })
+
+
+@app.get("/bots")
+def bots_page():
+    user = get_current_user()
+    bots = bot_manager.list_for_user(user["id"]) if user else []
+    # Attach training job status for "training" bots.
+    for b in bots:
+        if b["status"] == "training" and b.get("job_id"):
+            job = registry.get(b["job_id"])
+            b["job_status"] = job.status if job else "unknown"
+        else:
+            b["job_status"] = b["status"]
+    return render_template("bots.html", bots=bots)
+
+
+@app.get("/bots/<bot_id>/practice")
+def bot_practice_page(bot_id: str):
+    bot = bot_manager.get(bot_id)
+    if bot is None:
+        return "Bot not found", 404
+    user = get_current_user()
+    if user and bot["user_id"] != user["id"] and user.get("role") != "admin":
+        return "Forbidden", 403
+    css_tag, js_tag = _vite_tags()
+    return render_template(
+        "bot_practice.html",
+        bot=bot,
+        css_tag=css_tag,
+        js_tag=js_tag,
+    )
+
+
+@app.get("/api/bots")
+def api_bots_list():
+    user = get_current_user()
+    return jsonify(bot_manager.list_for_user(user["id"]) if user else [])
+
+
+@app.get("/api/bots/<bot_id>")
+def api_bot_detail(bot_id: str):
+    bot = bot_manager.get(bot_id)
+    if bot is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(bot)
+
+
+@app.post("/api/bots")
+def api_create_bot():
+    params = request.get_json(force=True)
+    opponent_username = (params.get("opponent_username") or "").strip()
+    if not opponent_username:
+        return jsonify({"error": "opponent_username is required"}), 400
+
+    platform = params.get("platform", "lichess")
+    speeds = params.get("speeds", "blitz,rapid,classical")
+    color = params.get("color", "both")
+
+    user = get_current_user()
+    if err := _check_user_job_limit(user):
+        return err
+
+    # Create the training job.
+    job_params = {
+        "opponent_username": opponent_username,
+        "platform": platform,
+        "speeds": speeds,
+        "color": color,
+    }
+    job = registry.create("train-bot", job_params, user_id=user["id"] if user else None)
+    out_path = str(OUTPUT_DIR / f"{job.id}.json")
+    job.out_path = out_path
+    registry.set_out_path(job.id, out_path)
+
+    # Create the bot row (status = training).
+    bot_id = bot_manager.create(
+        user_id=user["id"] if user else None,
+        opponent_username=opponent_username,
+        platform=platform,
+        speeds=speeds,
+        color=color,
+        job_id=job.id,
+    )
+
+    # Completion callback: update bot status when training finishes.
+    def _on_complete(status: str, exit_code: int) -> None:
+        if status == "done":
+            # Try to read opponent_elo from the written model JSON.
+            elo = None
+            try:
+                import json as _json
+                with open(out_path, encoding="utf-8") as f:
+                    model = _json.load(f)
+                elo = model.get("opponent_elo")
+            except Exception:
+                pass
+            bot_manager.set_status(bot_id, "ready", opponent_elo=elo)
+        else:
+            bot_manager.set_status(bot_id, "failed")
+
+    argv = build_train_bot_argv(job_params, out_path)
+    launch_job(job, argv, REPO_ROOT, registry, completion_callback=_on_complete)
+    return jsonify({"bot_id": bot_id, "job_id": job.id})
+
+
+# In-memory cache for loaded bot models (bot_id → dict).
+_bot_model_cache: dict[str, dict] = {}
+
+
+def _load_bot_model(bot_id: str, job_id: str) -> dict | None:
+    """Load and cache a bot model JSON from disk."""
+    if bot_id in _bot_model_cache:
+        return _bot_model_cache[bot_id]
+    job = registry.get(job_id)
+    if job is None or not job.out_path or not Path(job.out_path).exists():
+        return None
+    import json as _json
+    with open(job.out_path, encoding="utf-8") as f:
+        model = _json.load(f)
+    _bot_model_cache[bot_id] = model
+    return model
+
+
+@app.post("/api/bots/<bot_id>/move")
+def api_bot_move(bot_id: str):
+    """Return the bot's move for the given FEN and color.
+
+    Body: {"fen": "<FEN>", "color": "white"|"black"}
+    Response: {"uci": "<UCI>", "source": "opening"|"habit"|"engine"}
+    """
+    import random
+
+    data = request.get_json(force=True)
+    fen = (data.get("fen") or "").strip()
+    color = (data.get("color") or "white").strip()
+
+    if not fen:
+        return jsonify({"error": "fen is required"}), 400
+    if color not in ("white", "black"):
+        return jsonify({"error": "color must be white or black"}), 400
+
+    bot = bot_manager.get(bot_id)
+    if bot is None:
+        return jsonify({"error": "bot not found"}), 404
+    if bot["status"] != "ready":
+        return jsonify({"error": "bot is not ready"}), 409
+
+    model = _load_bot_model(bot_id, bot["job_id"])
+    if model is None:
+        return jsonify({"error": "bot model not available"}), 503
+
+    # Build habits lookup: fen → {player_move_uci, games, total}
+    habits_list = model.get(f"habits_{color}", [])
+    habits_by_fen = {h["fen"]: h for h in habits_list}
+
+    # ------------------------------------------------------------------
+    # 1. Check opening cache
+    # ------------------------------------------------------------------
+    backend_key = model.get(f"cache_backend_{color}")
+    if backend_key:
+        cached = _opening_cache.get(fen, backend_key)
+
+        if cached and cached.get("moves"):
+            moves = cached["moves"]
+
+            # Check for habit injection first.
+            if fen in habits_by_fen:
+                h = habits_by_fen[fen]
+                prob = h["games"] / h["total"] if h["total"] > 0 else 0
+                if random.random() < prob:
+                    return jsonify({"uci": h["player_move_uci"], "source": "habit"})
+
+            # Weighted-random move from the opening cache.
+            weights = [
+                m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)
+                for m in moves
+            ]
+            total_weight = sum(weights)
+            if total_weight > 0:
+                r = random.uniform(0, total_weight)
+                cumulative = 0.0
+                for m, w in zip(moves, weights):
+                    cumulative += w
+                    if r <= cumulative:
+                        return jsonify({"uci": m["uci"], "source": "opening"})
+            return jsonify({"uci": moves[0]["uci"], "source": "opening"})
+
+    # ------------------------------------------------------------------
+    # 2. Post-opening habit injection
+    # ------------------------------------------------------------------
+    if fen in habits_by_fen:
+        h = habits_by_fen[fen]
+        prob = h["games"] / h["total"] if h["total"] > 0 else 0
+        if random.random() < prob:
+            return jsonify({"uci": h["player_move_uci"], "source": "habit"})
+
+    # ------------------------------------------------------------------
+    # 3. Maia engine (falls back to Stockfish if maia2 is not installed)
+    # ------------------------------------------------------------------
+    try:
+        elo = model.get("opponent_elo") or 1500
+        uci = maia_engine.get_move(fen, elo)
+        if uci is None:
+            return jsonify({"error": "engine returned no move"}), 500
+        return jsonify({"uci": uci, "source": "engine"})
+    except Exception as exc:
+        return jsonify({"error": f"Engine error: {exc}"}), 500
 
 
 @app.post("/api/import-pgn")

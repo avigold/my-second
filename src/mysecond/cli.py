@@ -25,6 +25,7 @@ from .export import export_pgn
 from .fetcher import _DEFAULT_DB as _FETCH_DB
 from .fetcher import fetch_player_games, fetch_player_games_chesscom, import_pgn_player, last_fetch_ts
 from .habits import analyze_habits, export_habits_pgn
+from .bot_trainer import train_bot as _train_bot
 from .repertoire_extract import RepertoireStats, export_repertoire_pgn, extract_repertoire
 from .strategise import strategise
 from .score import score_novelty
@@ -959,3 +960,95 @@ def strategise_cmd(
             verbose=True,
             eval_cache=eval_cache,
         )
+
+
+# ---------------------------------------------------------------------------
+# train-bot
+# ---------------------------------------------------------------------------
+
+
+@main.command("train-bot")
+@click.option(
+    "--opponent",
+    "opponent_username",
+    required=True,
+    help="Username of the player to mimic.",
+)
+@click.option(
+    "--platform",
+    default="lichess",
+    show_default=True,
+    type=click.Choice(["lichess", "chesscom"]),
+    help="Platform to fetch games from.",
+)
+@click.option(
+    "--speeds",
+    default="blitz,rapid,classical",
+    show_default=True,
+    help="Comma-separated time controls to include.",
+)
+@click.option(
+    "--color",
+    "color_choice",
+    default="both",
+    show_default=True,
+    type=click.Choice(["white", "black", "both"]),
+    help="Which side(s) to train (both = white and black).",
+)
+@click.option(
+    "--out",
+    "out_path",
+    required=True,
+    help="Path to write the bot model JSON.",
+)
+@click.option(
+    "--db",
+    "db_path",
+    default=str(_FETCH_DB),
+    show_default=True,
+    help="Path to the SQLite cache database.",
+)
+def train_bot_cmd(
+    opponent_username: str,
+    platform: str,
+    speeds: str,
+    color_choice: str,
+    out_path: str,
+    db_path: str,
+) -> None:
+    """Train a bot that mimics OPPONENT's opening style and habits.
+
+    Fetches the opponent's games, analyses their habit inaccuracies,
+    fetches their Elo, and writes a JSON bot model to OUT.  The model
+    is used by ``POST /api/bots/<id>/move`` to select moves.
+
+    \b
+    Example:
+      mysecond train-bot --opponent Hikaru --platform chesscom \\
+          --speeds blitz,rapid --out hikaru_bot.json
+    """
+    try:
+        engine_path = find_stockfish()
+        click.echo(f"[train-bot] Engine: {engine_path}")
+    except FileNotFoundError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    colors = ["white", "black"] if color_choice == "both" else [color_choice]
+    eval_cache = EvalCache(Path("data/evals.sqlite"))
+    db = Path(db_path)
+
+    with Cache(db) as cache:
+        _train_bot(
+            opponent_username=opponent_username,
+            opponent_platform=platform,
+            speeds=speeds,
+            colors=colors,
+            cache=cache,
+            engine_path=engine_path,
+            out_path=Path(out_path),
+            verbose=True,
+            eval_cache=eval_cache,
+        )
+
+    click.echo("\n[train-bot] Done.")

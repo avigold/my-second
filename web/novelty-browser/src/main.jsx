@@ -6,6 +6,7 @@ import HabitsPracticeApp from './HabitsPracticeApp.jsx'
 import RepertoireApp from './RepertoireApp.jsx'
 import StrategiseApp from './StrategiseApp.jsx'
 import GameAnalysisApp from './GameAnalysisApp.jsx'
+import BotPracticeApp from './BotPracticeApp.jsx'
 import './chessground.base.css'
 import './chessground.brown.css'
 import './chessground.cburnett.css'
@@ -15,6 +16,7 @@ const rootEl = document.getElementById('root')
 const jobId  = rootEl.dataset.jobId
 const side   = rootEl.dataset.side || 'white'
 const mode   = rootEl.dataset.mode || 'novelties'
+const botId  = rootEl.dataset.botId
 
 const apps = {
   'novelties':       <App                jobId={jobId} side={side} />,
@@ -23,6 +25,7 @@ const apps = {
   'repertoire':      <RepertoireApp      jobId={jobId} side={side} />,
   'strategise':      <StrategiseApp      jobId={jobId} side={side} />,
   'game-analysis':   <GameAnalysisApp    jobId={jobId} side={side} />,
+  'bot-practice':    <BotPracticeApp     botId={botId} />,
 }
 
 createRoot(rootEl).render(apps[mode] ?? apps['novelties'])

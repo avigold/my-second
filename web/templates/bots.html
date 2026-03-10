@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}mysecond – Bots{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-2">Opponent Bots</h1>
+<p class="text-gray-400 text-sm mb-6">
+  Train a bot that plays like a specific opponent — their opening repertoire,
+  habitual inaccuracies, and calibrated strength. Then practice against them on a live board.
+</p>
+
+{# ------------------------------------------------------------------ #}
+{# Create bot form                                                       #}
+{# ------------------------------------------------------------------ #}
+<div class="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-lg mb-10">
+  <h2 class="text-lg font-semibold mb-4">Create a New Bot</h2>
+  <form id="bot-form" class="space-y-4">
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="col-span-2">
+        <label class="form-label">Opponent Username *</label>
+        <input name="opponent_username" id="opp-username" class="form-input"
+               placeholder="e.g. Hikaru" required>
+      </div>
+      <div>
+        <label class="form-label">Platform *</label>
+        <select name="platform" id="platform-select" class="form-input">
+          <option value="lichess">Lichess</option>
+          <option value="chesscom" selected>Chess.com</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Sides to Train</label>
+        <select name="color" class="form-input">
+          <option value="both">Both (White & Black)</option>
+          <option value="white">White only</option>
+          <option value="black">Black only</option>
+        </select>
+      </div>
+      <div class="col-span-2">
+        <label class="form-label">Time Controls</label>
+        <input name="speeds" id="speeds-input" class="form-input"
+               value="blitz,rapid" placeholder="blitz,rapid,classical">
+        <p id="speeds-hint" class="text-xs text-gray-500 mt-1">
+          Chess.com: use <code>blitz,rapid</code> — no <code>classical</code>.
+        </p>
+      </div>
+    </div>
+
+    <div id="bot-error" class="text-red-400 text-sm hidden"></div>
+
+    <button type="submit" id="submit-btn" class="btn-primary">
+      Create Bot
+    </button>
+  </form>
+</div>
+
+{# ------------------------------------------------------------------ #}
+{# Existing bots                                                         #}
+{# ------------------------------------------------------------------ #}
+<h2 class="text-lg font-semibold mb-4">Your Bots</h2>
+
+{% if not bots %}
+  <p class="text-gray-500 text-sm">No bots yet. Create your first bot above.</p>
+{% else %}
+  <div class="space-y-3">
+    {% for bot in bots %}
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-4 min-w-0">
+        <div class="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center text-lg font-bold text-gray-300 shrink-0">
+          {{ bot.opponent_username[0].upper() }}
+        </div>
+        <div class="min-w-0">
+          <div class="font-medium text-white truncate">{{ bot.opponent_username }}</div>
+          <div class="text-xs text-gray-400">
+            {{ bot.opponent_platform }}
+            {% if bot.opponent_elo %} · {{ bot.opponent_elo }} Elo{% endif %}
+            · {{ bot.speeds }}
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 shrink-0">
+        {% if bot.status == 'training' %}
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-900/50 text-yellow-400 border border-yellow-800">
+            Training…
+          </span>
+          {% if bot.job_id %}
+          <a href="/jobs/{{ bot.job_id }}"
+             class="text-xs text-gray-400 hover:text-gray-200">
+            View log
+          </a>
+          {% endif %}
+        {% elif bot.status == 'ready' %}
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/50 text-green-400 border border-green-800">
+            Ready
+          </span>
+          <a href="/bots/{{ bot.id }}/practice"
+             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium">
+            Practice
+          </a>
+        {% else %}
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/50 text-red-400 border border-red-800">
+            Failed
+          </span>
+          {% if bot.job_id %}
+          <a href="/jobs/{{ bot.job_id }}"
+             class="text-xs text-gray-400 hover:text-gray-200">
+            View log
+          </a>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<script>
+const platformSelect = document.getElementById('platform-select');
+const speedsInput    = document.getElementById('speeds-input');
+const speedsHint     = document.getElementById('speeds-hint');
+const oppUsername    = document.getElementById('opp-username');
+
+platformSelect.addEventListener('change', () => {
+  if (platformSelect.value === 'chesscom') {
+    speedsInput.value = 'blitz,rapid';
+    speedsHint.classList.remove('hidden');
+    oppUsername.placeholder = 'e.g. Hikaru';
+  } else {
+    speedsInput.value = 'blitz,rapid,classical';
+    speedsHint.classList.add('hidden');
+    oppUsername.placeholder = 'e.g. Alireza2003';
+  }
+});
+
+document.getElementById('bot-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const errEl = document.getElementById('bot-error');
+  errEl.classList.add('hidden');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+
+  const form = e.target;
+  const payload = {
+    opponent_username: form.querySelector('[name=opponent_username]').value.trim(),
+    platform: form.querySelector('[name=platform]').value,
+    speeds:   form.querySelector('[name=speeds]').value.trim(),
+    color:    form.querySelector('[name=color]').value,
+  };
+
+  try {
+    const res = await fetch('/api/bots', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed to create bot.';
+      errEl.classList.remove('hidden');
+      btn.disabled = false;
+      btn.textContent = 'Create Bot';
+      return;
+    }
+    // Redirect to the training job page so the user can watch progress.
+    window.location.href = `/jobs/${data.job_id}`;
+  } catch (err) {
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = 'Create Bot';
+  }
+});
+</script>
+{% endblock %}
