@@ -104,11 +104,15 @@ export default function BotPracticeApp({ botId }) {
     setThinking(true)
     setMoveSource(null)
 
+    const controller = new AbortController()
+    const abortTimer = setTimeout(() => controller.abort(), 10_000)
+
     try {
       const res = await fetch(`/api/bots/${botId}/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fen: currentFen, color: botColor }),
+        signal: controller.signal,
       })
       if (!res.ok) {
         // Revert to position before the user's move so they can try again.
@@ -136,6 +140,7 @@ export default function BotPracticeApp({ botId }) {
       console.error('Bot move error:', e)
       if (prevFen != null) setFen(prevFen)
     } finally {
+      clearTimeout(abortTimer)
       thinkingRef.current = false
       setThinking(false)
     }
@@ -309,18 +314,6 @@ export default function BotPracticeApp({ botId }) {
               height={boardSize}
               config={cgConfig}
             />
-            {thinking && (
-              <div style={{
-                position: 'absolute', inset: 0,
-                background: 'rgba(0,0,0,0.25)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                pointerEvents: 'none', borderRadius: 2,
-              }}>
-                <span style={{ color: '#9ca3af', fontSize: 13, fontStyle: 'italic' }}>
-                  thinking…
-                </span>
-              </div>
-            )}
           </div>
 
           {/* Game over banner */}
