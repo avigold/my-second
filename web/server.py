@@ -252,7 +252,8 @@ def job_page(job_id: str):
     job = registry.get(job_id)
     if job is None:
         return "Job not found", 404
-    return render_template("job.html", job=job.to_dict())
+    bot = bot_manager.get_by_job_id(job_id) if job.command == "train-bot" else None
+    return render_template("job.html", job=job.to_dict(), bot=bot)
 
 
 @app.get("/jobs/<job_id>/novelties")
@@ -388,11 +389,17 @@ def api_dashboard():
 
     stats["total_novelties"] = total_novelties
 
+    ready_bots = [
+        b for b in bot_manager.list_for_user(user["id"])
+        if b["status"] == "ready"
+    ] if user else []
+
     return jsonify({
         "stats":          stats,
         "top_habits":     top_habits,
         "top_novelties":  top_novelties,
         "recent_jobs":    all_jobs[:6],
+        "ready_bots":     ready_bots[:3],
     })
 
 

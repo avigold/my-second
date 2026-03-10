@@ -45,7 +45,7 @@
 </section>
 
 <!-- ─── Feature Cards ─────────────────────────────────────────────── -->
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-12">
+<div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-12">
 
   <a href="/fetch" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
      style="background:#0f172a;border-color:#1f2937;">
@@ -83,12 +83,21 @@
     </p>
   </a>
 
-  <a href="/strategise" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline col-span-2 md:col-span-1 lg:col-span-1"
+  <a href="/strategise" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
      style="background:#0f172a;border-color:#1f2937;">
     <div class="text-2xl mb-3 opacity-80">♔</div>
     <h3 class="font-semibold text-white text-sm mb-2 group-hover:text-amber-400 transition-colors">Strategise</h3>
     <p class="text-gray-500 text-xs leading-relaxed">
       Preparation brief. Decoded opening lines, endgame stats, and opponent weakness map.
+    </p>
+  </a>
+
+  <a href="/bots" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
+     style="background:#0f172a;border-color:#1f2937;">
+    <div class="text-2xl mb-3 opacity-80">🤖</div>
+    <h3 class="font-semibold text-white text-sm mb-2 group-hover:text-amber-400 transition-colors">Opponent Bots</h3>
+    <p class="text-gray-500 text-xs leading-relaxed">
+      Train a bot that plays like a specific opponent — their openings, habits, and Elo. Then practice live.
     </p>
   </a>
 
@@ -114,6 +123,9 @@
     <div id="habits-panel" class="hidden rounded-xl border border-gray-800 overflow-hidden" style="background:#0b1120;"></div>
     <div id="novelties-panel" class="hidden rounded-xl border border-gray-800 overflow-hidden" style="background:#0b1120;"></div>
   </div>
+
+  <!-- Bots -->
+  <div id="bots-panel" class="hidden rounded-xl border border-gray-800 overflow-hidden" style="background:#0b1120;"></div>
 
   <!-- Recent activity -->
   <div>
@@ -361,6 +373,40 @@ function renderNoveltyPanel(novelties) {
   return header + rows + footer;
 }
 
+// ─── Render bots panel ────────────────────────────────────────────────────
+function renderBotsPanel(bots) {
+  const header = `<div class="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+    <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Your Bots</span>
+    <a href="/bots" class="text-xs text-amber-500 hover:underline">Manage →</a>
+  </div>`;
+
+  if (!bots.length) {
+    return header + `<div class="px-5 py-6 text-center">
+      <p class="text-gray-600 text-xs mb-3">No bots ready yet. Train one to practice against an opponent.</p>
+      <a href="/bots" class="text-xs font-semibold text-amber-400 px-4 py-2 rounded-lg border border-amber-900 hover:border-amber-600 hover:bg-amber-900/20 transition-colors">Create a Bot →</a>
+    </div>`;
+  }
+
+  const rows = bots.map(b => {
+    const elo = b.opponent_elo ? `<span class="text-gray-500 text-xs">${b.opponent_elo} Elo</span>` : '';
+    return `<div class="flex items-center gap-4 px-5 py-4 border-b border-gray-900 hover:bg-white/[0.02] transition-colors">
+      <div class="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center text-sm font-bold text-gray-300 shrink-0 border border-gray-700">
+        ${b.opponent_username[0].toUpperCase()}
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="font-medium text-white text-sm truncate">${b.opponent_username}</div>
+        <div class="flex gap-2 items-center mt-0.5">${elo}<span class="text-gray-600 text-xs">${b.opponent_platform}</span></div>
+      </div>
+      <a href="/bots/${b.id}/practice"
+         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shrink-0">
+        Practice
+      </a>
+    </div>`;
+  }).join('');
+
+  return header + rows;
+}
+
 // ─── Main load ────────────────────────────────────────────────────────────
 async function loadDashboard() {
   let data;
@@ -375,7 +421,7 @@ async function loadDashboard() {
 
   document.getElementById('dash-loading').classList.add('hidden');
 
-  const { stats, top_habits, top_novelties, recent_jobs } = data;
+  const { stats, top_habits, top_novelties, recent_jobs, ready_bots = [] } = data;
 
   if (!stats.done_jobs && !recent_jobs.length) {
     document.getElementById('dash-empty').classList.remove('hidden');
@@ -408,6 +454,11 @@ async function loadDashboard() {
     : renderPlaceholder('♕', 'No novelties found yet',
         'Discover surprise weapons and rare lines to take your opponent out of prep.',
         '/search', 'Find Novelties →');
+
+  // Bots panel — always visible
+  const bp = document.getElementById('bots-panel');
+  bp.classList.remove('hidden');
+  bp.innerHTML = renderBotsPanel(ready_bots);
 
   // Recent activity
   if (recent_jobs.length) {

@@ -126,6 +126,23 @@ class BotManager:
             row = cur.fetchone()
         return _serialise(row) if row else None
 
+    def get_by_job_id(self, job_id: str) -> dict[str, Any] | None:
+        """Return a single bot row by job_id, or None if not found."""
+        with self._conn() as conn, conn.cursor(
+            cursor_factory=psycopg2.extras.RealDictCursor
+        ) as cur:
+            cur.execute(
+                """
+                SELECT id, user_id, opponent_username, opponent_platform,
+                       speeds, opponent_elo, job_id, status, created_at
+                FROM bots
+                WHERE job_id = %s
+                """,
+                (job_id,),
+            )
+            row = cur.fetchone()
+        return _serialise(row) if row else None
+
 
 def _serialise(row) -> dict[str, Any]:
     """Convert a psycopg2 RealDictRow to a plain dict, converting datetimes."""

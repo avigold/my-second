@@ -18,6 +18,9 @@
     {% elif job.command == 'strategise' %}
       {% set _au = job.params.player | default('') %}
       {% set _ap = job.params.player_platform | default('lichess') %}
+    {% elif job.command == 'train-bot' %}
+      {% set _au = job.params.opponent_username | default('') %}
+      {% set _ap = job.params.platform | default('lichess') %}
     {% else %}
       {% set _au = job.params.username | default('') %}
       {% set _ap = job.params.platform | default('lichess') %}
@@ -44,6 +47,7 @@
           {% elif job.command == "repertoire" %}Extract Repertoire
           {% elif job.command == "import" %}Import PGN
           {% elif job.command == "strategise" %}Strategise
+          {% elif job.command == "train-bot" %}Train Bot
           {% else %}{{ job.command }}{% endif %}
         </h1>
         <span id="status-badge"
@@ -99,6 +103,13 @@
     </a>
     <a href="/jobs/{{ job.id }}/habits-practice"
        class="btn-secondary {{ 'hidden' if job.status != 'done' or not job.out_path }}"
+       id="practice-btn">
+      Practice
+    </a>
+    {% endif %}
+    {% if job.command == 'train-bot' and bot and bot.status == 'ready' %}
+    <a href="/bots/{{ bot.id }}/practice"
+       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium"
        id="practice-btn">
       Practice
     </a>
@@ -180,8 +191,9 @@
 
 {% block scripts %}
 <script>
-const JOB_ID     = {{ job.id | tojson }};
-const JOB_STATUS = {{ job.status | tojson }};
+const JOB_ID      = {{ job.id | tojson }};
+const JOB_STATUS  = {{ job.status | tojson }};
+const JOB_COMMAND = {{ job.command | tojson }};
 
 // ── Avatar ──────────────────────────────────────────────────────────────────
 (function () {
@@ -277,6 +289,10 @@ function markDone(status) {
     markProgressDone();
     loadNoveltySummary();
     loadHabitsSummary();
+    // train-bot: reload so server-side Practice button becomes visible
+    if (JOB_COMMAND === 'train-bot') {
+      setTimeout(() => location.reload(), 1500);
+    }
   }
 }
 
