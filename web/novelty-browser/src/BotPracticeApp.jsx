@@ -205,9 +205,13 @@ export default function BotPracticeApp({ botId }) {
     return getLegalDests(fen, userColor)
   }, [fen, thinking, gameOver, userColor])
 
+  const botColor = userColor === 'white' ? 'black' : 'white'
   const cgConfig = {
     fen,
     orientation: userColor,
+    // Must always set turnColor explicitly — Chessground flips it internally
+    // after each user move and won't re-enable pieces otherwise.
+    turnColor: thinking ? botColor : userColor,
     lastMove: lastMove ?? undefined,
     movable: {
       free: false,
@@ -228,6 +232,7 @@ export default function BotPracticeApp({ botId }) {
     <div style={{ padding: 32, color: '#9ca3af' }}>Loading…</div>
   )
 
+  // botColor already defined above for cgConfig
   const sourceLabel = {
     opening: { text: 'Opening', color: '#60a5fa' },
     habit:   { text: 'Habit!',  color: '#f87171' },
