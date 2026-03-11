@@ -178,4 +178,46 @@ document.getElementById('opponent-platform').addEventListener('change', function
     document.getElementById('opponent-input'));
 });
 </script>
+
+<!-- ── Recent novelty searches ────────────────────────────────────── -->
+<div class="mt-12" id="recent-section" style="display:none">
+  <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Your Novelty Searches</h2>
+  <div id="recent-list" class="space-y-2"></div>
+</div>
+
+<script>
+(async function loadRecent() {
+  const res = await fetch('/api/jobs').catch(() => null);
+  if (!res || !res.ok) return;
+  const jobs = (await res.json()).filter(j => j.command === 'search').slice(0, 8);
+  if (!jobs.length) return;
+  document.getElementById('recent-section').style.display = 'block';
+  const statusCol = { done:'#4ade80', running:'#60a5fa', queued:'#fbbf24', failed:'#f87171', cancelled:'#6b7280' };
+  function ago(iso) {
+    const s = (Date.now() - new Date(iso)) / 1000;
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.floor(s/60)}m ago`;
+    if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+    return new Date(iso).toLocaleDateString(undefined, {month:'short', day:'numeric'});
+  }
+  document.getElementById('recent-list').innerHTML = jobs.map(j => {
+    const p = j.params || {};
+    const label = p.player
+      ? `${p.player} (${p.player_platform || 'lichess'}) vs ${p.opponent || '—'} · ${p.side || '?'}`
+      : `${p.side || '?'} · generic theory walk`;
+    const col = statusCol[j.status] || '#9ca3af';
+    const actions = j.status === 'done'
+      ? `<a href="/jobs/${j.id}/novelties" class="text-xs text-amber-400 hover:underline shrink-0">Browse</a>
+         <a href="/api/jobs/${j.id}/download" class="text-xs text-gray-500 hover:underline shrink-0" download>↓ PGN</a>`
+      : '';
+    return `<div class="flex items-center gap-3 rounded-lg border border-gray-800 px-4 py-3 text-sm" style="background:#0f172a;">
+      <span class="font-mono text-xs shrink-0" style="color:${col};">${j.status}</span>
+      <span class="text-gray-300 truncate flex-1">${label}</span>
+      <span class="text-xs text-gray-600 shrink-0">${ago(j.started_at)}</span>
+      ${actions}
+      <a href="/jobs/${j.id}" class="text-xs text-gray-500 hover:text-gray-300 shrink-0">View →</a>
+    </div>`;
+  }).join('');
+})();
+</script>
 {% endblock %}
