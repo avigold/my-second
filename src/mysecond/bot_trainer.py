@@ -172,10 +172,10 @@ def train_bot(
 def _fetch_elo(username: str, platform: str, speeds: str) -> int | None:
     """Fetch the player's Elo from the platform API.
 
-    Returns the rating for the first speed in speeds, or None on failure.
+    Returns the highest rating across all specified speeds, or None on failure.
     Returned value is clamped to [1100, 3000].
     """
-    first_speed = speeds.split(",")[0].strip().lower()
+    speed_list = [s.strip().lower() for s in speeds.split(",") if s.strip()]
     headers = {"User-Agent": "mysecond/0.1.0"}
     try:
         if platform == "lichess":
@@ -187,11 +187,18 @@ def _fetch_elo(username: str, platform: str, speeds: str) -> int | None:
             if resp.status_code != 200:
                 return None
             data = resp.json()
-            rating = data.get("perfs", {}).get(first_speed, {}).get("rating")
-            if rating is None:
+            perfs = data.get("perfs", {})
+            ratings = [
+                perfs[s]["rating"]
+                for s in speed_list
+                if s in perfs and perfs[s].get("rating")
+            ]
+            if not ratings:
+                # Fall back to any available time control.
                 for alt in ("blitz", "rapid", "bullet", "classical"):
-                    rating = data.get("perfs", {}).get(alt, {}).get("rating")
-                    if rating:
+                    r = perfs.get(alt, {}).get("rating")
+                    if r:
+                        ratings = [r]
                         break
         else:
             resp = requests.get(
@@ -202,16 +209,22 @@ def _fetch_elo(username: str, platform: str, speeds: str) -> int | None:
             if resp.status_code != 200:
                 return None
             data = resp.json()
-            chesscom_key = _SPEED_TO_CHESSCOM.get(first_speed, "chess_blitz")
-            rating = data.get(chesscom_key, {}).get("last", {}).get("rating")
-            if rating is None:
+            ratings = [
+                data[_SPEED_TO_CHESSCOM[s]]["last"]["rating"]
+                for s in speed_list
+                if s in _SPEED_TO_CHESSCOM
+                and _SPEED_TO_CHESSCOM[s] in data
+                and data[_SPEED_TO_CHESSCOM[s]].get("last", {}).get("rating")
+            ]
+            if not ratings:
                 for alt_key in ("chess_blitz", "chess_rapid", "chess_bullet"):
-                    rating = data.get(alt_key, {}).get("last", {}).get("rating")
-                    if rating:
+                    r = data.get(alt_key, {}).get("last", {}).get("rating")
+                    if r:
+                        ratings = [r]
                         break
     except requests.RequestException:
         return None
 
-    if rating is None:
+    if not ratings:
         return None
-    return max(_ELO_MIN, min(_ELO_MAX, int(rating)))
+    return max(_ELO_MIN, min(_ELO_MAX, max(ratings)))
