@@ -92,8 +92,8 @@ platformSelect.addEventListener('change', () => {
 
 <!-- ── Recent habits jobs ──────────────────────────────────────────── -->
 <div class="mt-12" id="recent-section" style="display:none">
-  <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Your Habits</h2>
-  <div id="recent-list" class="space-y-2"></div>
+  <h2 class="text-lg font-semibold mb-4">Your Habits</h2>
+  <div id="recent-list" class="space-y-3"></div>
 </div>
 
 <script>
@@ -103,7 +103,18 @@ platformSelect.addEventListener('change', () => {
   const jobs = (await res.json()).filter(j => j.command === 'habits').slice(0, 8);
   if (!jobs.length) return;
   document.getElementById('recent-section').style.display = 'block';
-  const statusCol = { done:'#4ade80', running:'#60a5fa', queued:'#fbbf24', failed:'#f87171', cancelled:'#6b7280' };
+
+  function badge(status) {
+    const map = {
+      done:      'bg-green-900/50 text-green-400 border-green-800',
+      running:   'bg-blue-900/50 text-blue-400 border-blue-800',
+      queued:    'bg-yellow-900/50 text-yellow-400 border-yellow-800',
+      failed:    'bg-red-900/50 text-red-400 border-red-800',
+      cancelled: 'bg-gray-800 text-gray-500 border-gray-700',
+    };
+    const label = { done:'Done', running:'Running…', queued:'Queued', failed:'Failed', cancelled:'Cancelled' };
+    return `<span class="px-2.5 py-0.5 rounded-full text-xs font-medium border ${map[status] || 'bg-gray-800 text-gray-500 border-gray-700'}">${label[status] || status}</span>`;
+  }
   function ago(iso) {
     const s = (Date.now() - new Date(iso)) / 1000;
     if (s < 60) return 'just now';
@@ -111,20 +122,30 @@ platformSelect.addEventListener('change', () => {
     if (s < 86400) return `${Math.floor(s/3600)}h ago`;
     return new Date(iso).toLocaleDateString(undefined, {month:'short', day:'numeric'});
   }
+
   document.getElementById('recent-list').innerHTML = jobs.map(j => {
     const p = j.params || {};
-    const label = `${p.username || '—'} / ${p.color || '?'} · ${p.platform || 'lichess'} · ${p.speeds || ''}`;
-    const col = statusCol[j.status] || '#9ca3af';
+    const initial = (p.username || '?')[0].toUpperCase();
+    const subtitle = `${p.color || '?'} · ${p.platform || 'lichess'} · ${p.speeds || ''} · ${ago(j.started_at)}`;
     const actions = j.status === 'done'
-      ? `<a href="/jobs/${j.id}/habits-browser" class="text-xs text-amber-400 hover:underline shrink-0">Browse</a>
-         <a href="/jobs/${j.id}/habits-practice" class="text-xs text-blue-400 hover:underline shrink-0">Practice</a>`
-      : '';
-    return `<div class="flex items-center gap-3 rounded-lg border border-gray-800 px-4 py-3 text-sm" style="background:#0f172a;">
-      <span class="font-mono text-xs shrink-0" style="color:${col};">${j.status}</span>
-      <span class="text-gray-300 truncate flex-1">${label}</span>
-      <span class="text-xs text-gray-600 shrink-0">${ago(j.started_at)}</span>
-      ${actions}
-      <a href="/jobs/${j.id}" class="text-xs text-gray-500 hover:text-gray-300 shrink-0">View →</a>
+      ? `<a href="/jobs/${j.id}/habits-browser"
+            class="btn-secondary text-xs">Browse</a>
+         <a href="/jobs/${j.id}/habits-practice"
+            class="inline-flex items-center px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium">Practice</a>`
+      : `<a href="/jobs/${j.id}" class="text-xs text-gray-400 hover:text-gray-200">View log</a>`;
+    return `
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-4 min-w-0">
+        <div class="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center text-lg font-bold text-gray-300 shrink-0">${initial}</div>
+        <div class="min-w-0">
+          <div class="font-medium text-white truncate">${p.username || '—'}</div>
+          <div class="text-xs text-gray-400">${subtitle}</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 shrink-0">
+        ${badge(j.status)}
+        ${actions}
+      </div>
     </div>`;
   }).join('');
 })();
