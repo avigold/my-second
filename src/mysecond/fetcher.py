@@ -357,10 +357,20 @@ def _download_chesscom_pgn(
     # Iterate newest → oldest, collecting PGN text up to max_games.
     pgn_parts: list[str] = []
     collected = 0
+    archives_reversed = list(reversed(archive_urls))
+    n_archives = len(archives_reversed)
 
-    for url in reversed(archive_urls):
+    for i, url in enumerate(archives_reversed):
         if collected >= max_games:
             break
+        # Print progress every archive so the SSE stream stays alive.
+        ym = url.rstrip("/").split("/")[-2:]
+        ym_label = "/".join(ym) if len(ym) == 2 else url
+        if verbose:
+            print(
+                f"[fetch]  archive {i + 1}/{n_archives} ({ym_label}) — {collected} games so far …",
+                flush=True,
+            )
         try:
             resp = _chesscom_get_with_backoff(session, url)
             games = resp.json().get("games", [])
