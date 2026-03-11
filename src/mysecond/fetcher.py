@@ -366,11 +366,10 @@ def _download_chesscom_pgn(
         # Print progress every archive so the SSE stream stays alive.
         ym = url.rstrip("/").split("/")[-2:]
         ym_label = "/".join(ym) if len(ym) == 2 else url
-        if verbose:
-            print(
-                f"[fetch]  archive {i + 1}/{n_archives} ({ym_label}) — {collected} games so far …",
-                flush=True,
-            )
+        print(
+            f"[fetch]  archive {i + 1}/{n_archives} ({ym_label}) — {collected} games so far …",
+            flush=True,
+        )
         try:
             resp = _chesscom_get_with_backoff(session, url)
             games = resp.json().get("games", [])
