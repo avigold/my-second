@@ -494,7 +494,7 @@ def _build_book(
 
             # Record only the player's own moves at their turn.
             if board.turn == player_turn:
-                fen = board.fen()
+                fen = _fen_cache_key(board.fen())
                 uci = move.uci()
 
                 if fen not in book:
@@ -640,6 +640,20 @@ def _merge_payloads(
 
 def _backend_key(username: str, color: str, speeds: str, platform: str = "lichess") -> str:
     return f"{platform}_player_{username.lower()}_{color}_{speeds}"
+
+
+def _fen_cache_key(fen: str) -> str:
+    """Normalize a FEN for use as a cache key by stripping the en passant field.
+
+    Python's ``chess`` library always includes the ep square (e.g. ``e6``) after
+    a two-square pawn push, but ``chess.js`` v1+ only includes it when there is a
+    pawn that can actually capture.  Stripping the field from cache keys makes
+    lookups from the browser match entries built by the Python fetcher.
+    """
+    parts = fen.split(" ")
+    if len(parts) >= 4:
+        parts[3] = "-"
+    return " ".join(parts)
 
 
 def _write_fetch_meta(cache: Cache, backend: str) -> None:

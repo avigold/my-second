@@ -1305,16 +1305,27 @@ def api_bot_move(bot_id: str):
     # ------------------------------------------------------------------
     # 1. Check opening cache
     # ------------------------------------------------------------------
+    # Normalize the FEN by stripping the en passant field: chess.js v1+ omits
+    # it when no pawn can capture, while Python's chess always includes it.
+    # Cache keys are stored without ep (see fetcher._fen_cache_key).
+    def _strip_ep(f: str) -> str:
+        parts = f.split(" ")
+        if len(parts) >= 4:
+            parts[3] = "-"
+        return " ".join(parts)
+
+    lookup_fen = _strip_ep(fen)
+
     backend_key = model.get(f"cache_backend_{color}")
     if backend_key:
-        cached = _opening_cache.get(fen, backend_key)
+        cached = _opening_cache.get(lookup_fen, backend_key)
 
         if cached and cached.get("moves"):
             moves = cached["moves"]
 
-            # Check for habit injection first.
-            if fen in habits_by_fen:
-                h = habits_by_fen[fen]
+            # Check for habit injection first (habits keyed by ep-stripped FEN too).
+            if lookup_fen in habits_by_fen:
+                h = habits_by_fen[lookup_fen]
                 prob = h["games"] / h["total"] if h["total"] > 0 else 0
                 if random.random() < prob:
                     return jsonify({"uci": h["player_move_uci"], "source": "habit"})
@@ -1337,8 +1348,8 @@ def api_bot_move(bot_id: str):
     # ------------------------------------------------------------------
     # 2. Post-opening habit injection
     # ------------------------------------------------------------------
-    if fen in habits_by_fen:
-        h = habits_by_fen[fen]
+    if lookup_fen in habits_by_fen:
+        h = habits_by_fen[lookup_fen]
         prob = h["games"] / h["total"] if h["total"] > 0 else 0
         if random.random() < prob:
             return jsonify({"uci": h["player_move_uci"], "source": "habit"})
