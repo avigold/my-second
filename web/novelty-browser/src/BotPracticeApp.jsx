@@ -317,27 +317,29 @@ export default function BotPracticeApp({ botId }) {
 
   const finalTurn = (() => { try { return new Chess(fen).turn() } catch { return 'w' } })()
 
-  const gameOverBanner = gameOver && (
+  const gameOverText = gameOver === 'checkmate'
+    ? (finalTurn === (userColor === 'white' ? 'w' : 'b') ? 'You were checkmated' : 'You checkmated the bot!')
+    : gameOver === 'stalemate' ? 'Stalemate — draw'
+    : 'Draw'
+
+  // Rendered as an absolute overlay on the board so it never gets clipped
+  const gameOverOverlay = gameOver && (
     <div style={{
-      marginTop: 10,
-      background: '#111827', border: '1px solid #374151',
-      borderRadius: 8, padding: '10px 16px', textAlign: 'center',
-      width: boardSize,
+      position: 'absolute', inset: 0, zIndex: 20,
+      background: 'rgba(3,7,18,0.80)',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      gap: 14,
     }}>
-      <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 14 }}>
-        {gameOver === 'checkmate'
-          ? (finalTurn === (userColor === 'white' ? 'w' : 'b')
-              ? 'You were checkmated'
-              : 'You checkmated the bot!')
-          : gameOver === 'stalemate' ? 'Stalemate — draw'
-          : 'Draw'}
+      <div style={{ fontWeight: 700, fontSize: 17, color: '#f3f4f6', textAlign: 'center', padding: '0 16px' }}>
+        {gameOverText}
       </div>
       <button
         onClick={handleNewGame}
         style={{
           background: '#1d4ed8', color: '#fff',
           border: 'none', borderRadius: 6,
-          padding: '6px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+          padding: '8px 22px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
         }}
       >
         Play Again
@@ -386,12 +388,9 @@ export default function BotPracticeApp({ botId }) {
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <div style={{ width: boardSize, height: boardSize, position: 'relative' }}>
               <Chessground key={resetKey} width={boardSize} height={boardSize} config={cgConfig} />
+              {gameOverOverlay}
             </div>
           </div>
-
-          {gameOverBanner && (
-            <div style={{ display: 'flex', justifyContent: 'center' }}>{gameOverBanner}</div>
-          )}
 
           {/* Move history (mobile) */}
           <div style={{
@@ -456,10 +455,10 @@ export default function BotPracticeApp({ botId }) {
           padding: '24px 24px 24px 32px',
           gap: 10,
         }}>
-          <div style={{ width: boardSize, height: boardSize }}>
+          <div style={{ width: boardSize, height: boardSize, position: 'relative' }}>
             <Chessground key={resetKey} width={boardSize} height={boardSize} config={cgConfig} />
+            {gameOverOverlay}
           </div>
-          {gameOverBanner}
         </div>
 
         {/* Right panel */}
