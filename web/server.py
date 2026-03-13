@@ -197,7 +197,7 @@ def auth_google_callback():
 @app.get("/auth/logout")
 def auth_logout():
     session.clear()
-    return redirect("/login")
+    return redirect("/")
 
 
 def _vite_tags() -> tuple[str, str]:
