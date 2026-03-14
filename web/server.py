@@ -290,6 +290,7 @@ def api_fetch():
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
+    if err := _check_plan_limit(user, "fetch"): return err
     job = registry.create("fetch", params, out_path=None, user_id=user["id"] if user else None)
     # Set out_path to a UUID-named PGN so games can be browsed after fetch.
     pgn_out = str(OUTPUT_DIR / f"{job.id}.pgn")
@@ -577,7 +578,7 @@ def _kill_job_process(job) -> None:
 # Plan / freemium helpers
 # ---------------------------------------------------------------------------
 
-_FREE_LIMITS: dict[str, int] = {"search": 3, "habits": 3, "repertoire": 3, "strategise": 1, "train-bot": 1}
+_FREE_LIMITS: dict[str, int] = {"fetch": 5, "import": 5, "search": 3, "habits": 3, "repertoire": 3, "strategise": 1, "train-bot": 1}
 _PRO_ONLY: set[str] = set()
 
 
@@ -1450,6 +1451,7 @@ def api_import_pgn():
 
     user = get_current_user()
     if err := _check_user_job_limit(user): return err
+    if err := _check_plan_limit(user, "import"): return err
     job = registry.create("import", params, user_id=user["id"] if user else None)
 
     # Save the uploaded file under the job ID so the subprocess can read it.
