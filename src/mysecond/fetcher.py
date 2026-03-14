@@ -197,7 +197,7 @@ def fetch_player_games_chesscom(
             flush=True,
         )
 
-    pgn_text = _download_chesscom_pgn(username, color, speeds, max_games, since_ts)
+    pgn_text = _download_chesscom_pgn(username, color, speeds, max_games, since_ts, show_progress=show_progress)
 
     if not pgn_text.strip():
         if verbose:
@@ -309,6 +309,7 @@ def _download_chesscom_pgn(
     speeds: str,
     max_games: int,
     since_ts: int | None,
+    show_progress: bool = True,
 ) -> str:
     """Download PGN text from Chess.com for one player/color/speeds combination."""
     from calendar import monthrange
