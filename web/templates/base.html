@@ -127,14 +127,24 @@
           <div class="bg-gray-900 border border-gray-800 rounded-lg py-1 shadow-xl" style="min-width:180px;">
             <a href="/search"     class="block px-4 py-2 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800">Find Novelties</a>
             <a href="/repertoire" class="block px-4 py-2 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800">Extract Repertoire</a>
-            <a href="/habits"     class="block px-4 py-2 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800">Analyse Habits</a>
             <a href="/strategise" class="block px-4 py-2 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800">Strategise</a>
           </div>
         </div>
       </div>
 
-      <!-- Practice — direct link -->
-      <a href="/bots" class="text-sm text-gray-300 hover:text-amber-400 transition-colors">Practice</a>
+      <!-- Train dropdown -->
+      <div class="relative group">
+        <button class="text-sm text-gray-300 group-hover:text-amber-400 transition-colors flex items-center gap-1 bg-transparent border-0 cursor-pointer p-0 leading-none">
+          Train
+          <svg width="10" height="7" viewBox="0 0 10 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.5;margin-top:1px;"><polyline points="1.5 1.5 5 5.5 8.5 1.5"/></svg>
+        </button>
+        <div class="absolute top-full left-0 pt-1 z-50 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-all duration-150">
+          <div class="bg-gray-900 border border-gray-800 rounded-lg py-1 shadow-xl" style="min-width:180px;">
+            <a href="/habits" class="block px-4 py-2 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800">Analyse Habits</a>
+            <a href="/bots"   class="block px-4 py-2 text-sm text-gray-300 hover:text-amber-400 hover:bg-gray-800">Opponent Bots</a>
+          </div>
+        </div>
+      </div>
 
       <a href="/jobs" class="text-sm text-gray-300 hover:text-amber-400 transition-colors ml-auto">Job History</a>
       {% if current_user %}
@@ -175,10 +185,11 @@
     <p class="text-xs text-gray-600 uppercase tracking-widest font-mono px-1 pb-0.5">Analyse</p>
     <a href="/search"     class="nav-drawer-link" style="padding-left:0.75rem;">Find Novelties</a>
     <a href="/repertoire" class="nav-drawer-link" style="padding-left:0.75rem;">Extract Repertoire</a>
-    <a href="/habits"     class="nav-drawer-link" style="padding-left:0.75rem;">Analyse Habits</a>
     <a href="/strategise" class="nav-drawer-link" style="padding-left:0.75rem;">Strategise</a>
     <div style="height:1px;background:#1f2937;margin:4px 0;"></div>
-    <a href="/bots"       class="nav-drawer-link">Practice</a>
+    <p class="text-xs text-gray-600 uppercase tracking-widest font-mono px-1 pb-0.5">Train</p>
+    <a href="/habits" class="nav-drawer-link" style="padding-left:0.75rem;">Analyse Habits</a>
+    <a href="/bots"   class="nav-drawer-link" style="padding-left:0.75rem;">Opponent Bots</a>
     <div style="height:1px;background:#1f2937;margin:4px 0;"></div>
     <a href="/jobs"       class="nav-drawer-link">Job History</a>
     {% if current_user %}
