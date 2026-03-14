@@ -11,18 +11,16 @@ from typing import Any
 
 
 def _norm_fen(fen: str) -> str:
-    """Normalise a FEN for use as a cache key by stripping the en-passant field.
+    """Normalise a FEN for use as a cache key.
 
-    Python's ``chess`` library always includes the e.p. square (e.g. ``e6``),
-    while chess.js v1+ omits it when no pawn can actually capture.  Stripping
-    the field from both stored keys and lookups makes the two representations
-    interchangeable, which is safe for opening-book purposes because e.p.
-    captures are essentially never the right book move.
+    Keeps only the four fields that matter for opening-book identity:
+    piece placement, active color, castling rights, and en-passant
+    (normalised to "-").  The half-move clock and full-move number are
+    discarded so that transpositions (same position reached by different
+    move orders) always map to the same cache key.
     """
     parts = fen.split(" ")
-    if len(parts) >= 4:
-        parts[3] = "-"
-    return " ".join(parts)
+    return " ".join(parts[:3]) + " -"
 
 
 class Cache:

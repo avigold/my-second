@@ -1374,13 +1374,11 @@ def api_bot_move(bot_id: str):
     # Normalize the FEN by stripping the en passant field: chess.js v1+ omits
     # it when no pawn can capture, while Python's chess always includes it.
     # Cache keys are stored without ep (see fetcher._fen_cache_key).
-    def _strip_ep(f: str) -> str:
+    def _norm_lookup(f: str) -> str:
         parts = f.split(" ")
-        if len(parts) >= 4:
-            parts[3] = "-"
-        return " ".join(parts)
+        return " ".join(parts[:3]) + " -"
 
-    lookup_fen = _strip_ep(fen)
+    lookup_fen = _norm_lookup(fen)
 
     backend_key = model.get(f"cache_backend_{color}")
     if backend_key:

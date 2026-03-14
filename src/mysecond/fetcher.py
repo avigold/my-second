@@ -652,17 +652,14 @@ def _backend_key(username: str, color: str, speeds: str, platform: str = "liches
 
 
 def _fen_cache_key(fen: str) -> str:
-    """Normalize a FEN for use as a cache key by stripping the en passant field.
+    """Normalize a FEN for use as a cache key.
 
-    Python's ``chess`` library always includes the ep square (e.g. ``e6``) after
-    a two-square pawn push, but ``chess.js`` v1+ only includes it when there is a
-    pawn that can actually capture.  Stripping the field from cache keys makes
-    lookups from the browser match entries built by the Python fetcher.
+    Keeps only piece placement, active color, castling rights, and ep="-".
+    Strips the half-move clock and full-move number so transpositions
+    (same position via different move orders) hit the same cache entry.
     """
     parts = fen.split(" ")
-    if len(parts) >= 4:
-        parts[3] = "-"
-    return " ".join(parts)
+    return " ".join(parts[:3]) + " -"
 
 
 def _write_fetch_meta(cache: Cache, backend: str) -> None:
