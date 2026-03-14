@@ -218,12 +218,13 @@ def google_handle_callback(registry) -> dict | None:
     if not google_id:
         return None
 
+    email = userinfo.get("email") or None
     # Prefer display name; fall back to email prefix
     username = (userinfo.get("name")
-                or (userinfo.get("email") or "").split("@")[0]
+                or (email or "").split("@")[0]
                 or google_id)
 
-    return registry.upsert_user(google_id=google_id, username=username)
+    return registry.upsert_user(google_id=google_id, username=username, email=email)
 
 
 # ---------------------------------------------------------------------------

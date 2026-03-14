@@ -169,40 +169,44 @@ class JobRegistry:
         lichess_id: str | None = None,
         chesscom_id: str | None = None,
         google_id: str | None = None,
+        email: str | None = None,
     ) -> dict:
         """Create or update a user by platform ID. Returns user dict."""
         with self._conn() as conn, conn.cursor() as cur:
             if lichess_id:
                 cur.execute(
                     """
-                    INSERT INTO users (lichess_id, username)
-                    VALUES (%s, %s)
-                    ON CONFLICT (lichess_id) DO UPDATE SET username = EXCLUDED.username
+                    INSERT INTO users (lichess_id, username, email)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (lichess_id) DO UPDATE SET username = EXCLUDED.username,
+                        email = COALESCE(EXCLUDED.email, users.email)
                     RETURNING id, username, role
                     """,
-                    (lichess_id, username),
+                    (lichess_id, username, email),
                 )
                 platform = "lichess"
             elif chesscom_id:
                 cur.execute(
                     """
-                    INSERT INTO users (chesscom_id, username)
-                    VALUES (%s, %s)
-                    ON CONFLICT (chesscom_id) DO UPDATE SET username = EXCLUDED.username
+                    INSERT INTO users (chesscom_id, username, email)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (chesscom_id) DO UPDATE SET username = EXCLUDED.username,
+                        email = COALESCE(EXCLUDED.email, users.email)
                     RETURNING id, username, role
                     """,
-                    (chesscom_id, username),
+                    (chesscom_id, username, email),
                 )
                 platform = "chesscom"
             else:
                 cur.execute(
                     """
-                    INSERT INTO users (google_id, username)
-                    VALUES (%s, %s)
-                    ON CONFLICT (google_id) DO UPDATE SET username = EXCLUDED.username
+                    INSERT INTO users (google_id, username, email)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (google_id) DO UPDATE SET username = EXCLUDED.username,
+                        email = COALESCE(EXCLUDED.email, users.email)
                     RETURNING id, username, role
                     """,
-                    (google_id, username),
+                    (google_id, username, email),
                 )
                 platform = "google"
             row = cur.fetchone()
@@ -267,13 +271,14 @@ class JobRegistry:
                     COALESCE(s.plan, 'free')   AS plan,
                     COALESCE(s.status, '')      AS sub_status,
                     COUNT(j.id)                 AS total_jobs,
-                    MAX(j.started_at)           AS last_active
+                    MAX(j.started_at)           AS last_active,
+                    u.email
                 FROM users u
                 LEFT JOIN subscriptions s ON s.user_id = u.id
                 LEFT JOIN jobs j ON j.user_id = u.id
                 GROUP BY u.id, u.username, u.role, u.created_at,
                          u.lichess_id, u.chesscom_id, u.google_id,
-                         s.plan, s.status
+                         s.plan, s.status, u.email
                 ORDER BY last_active DESC NULLS LAST
                 """
             )
@@ -289,6 +294,7 @@ class JobRegistry:
                 "sub_status":  r[6],
                 "total_jobs":  r[7],
                 "last_active": r[8].isoformat() if r[8] else None,
+                "email":       r[9],
             }
             for r in rows
         ]
