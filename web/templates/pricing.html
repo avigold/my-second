@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Pricing — My Second AI Chess Analysis{% endblock %}
-{% block meta_description %}Free plan includes 3 analyses per month. Pro at $9/month gives unlimited novelty searches, habit analyses, repertoire extractions, and Strategise AI opponent preparation.{% endblock %}
+{% block meta_description %}Free plan includes 5 fetches, 3 analyses, and 1 Strategise per month. Pro at $9/month gives unlimited access to all tools including AI opponent preparation and practice bots.{% endblock %}
 {% block canonical %}https://mysecond.app/pricing{% endblock %}
 {% block meta %}
 <meta property="og:type"        content="website">
 <meta property="og:url"         content="https://mysecond.app/pricing">
 <meta property="og:site_name"   content="My Second">
 <meta property="og:title"       content="Pricing — My Second AI Chess Analysis">
-<meta property="og:description" content="Free plan: 3 analyses/month. Pro: $9/month for unlimited access including AI opponent preparation with Strategise.">
+<meta property="og:description" content="Free plan: 5 fetches, 3 analyses, 1 Strategise/month. Pro: $9/month for unlimited access to all tools.">
 {% endblock %}
 {% block main_class %}w-full max-w-none{% endblock %}
 {% block main_px %}{% endblock %}
@@ -58,27 +58,31 @@
         <ul class="flex-1 space-y-3 mb-8">
           <li class="flex items-start gap-3 text-sm">
             <span style="color:#4ade80;flex-shrink:0;margin-top:1px;">✓</span>
-            <span class="text-gray-300">Fetch games from Lichess &amp; Chess.com</span>
+            <span class="text-gray-300">Fetch games from Lichess &amp; Chess.com — <span class="text-gray-500">5 / month</span></span>
           </li>
           <li class="flex items-start gap-3 text-sm">
             <span style="color:#4ade80;flex-shrink:0;margin-top:1px;">✓</span>
-            <span class="text-gray-300">Import PGN files</span>
+            <span class="text-gray-300">Import PGN files — <span class="text-gray-500">5 / month</span></span>
           </li>
           <li class="flex items-start gap-3 text-sm">
             <span style="color:#4ade80;flex-shrink:0;margin-top:1px;">✓</span>
-            <span class="text-gray-300">Find Novelties — 3 analyses / month</span>
+            <span class="text-gray-300">Find Novelties — <span class="text-gray-500">3 / month</span></span>
           </li>
           <li class="flex items-start gap-3 text-sm">
             <span style="color:#4ade80;flex-shrink:0;margin-top:1px;">✓</span>
-            <span class="text-gray-300">Analyse Habits — 3 analyses / month</span>
+            <span class="text-gray-300">Analyse Habits — <span class="text-gray-500">3 / month</span></span>
           </li>
           <li class="flex items-start gap-3 text-sm">
             <span style="color:#4ade80;flex-shrink:0;margin-top:1px;">✓</span>
-            <span class="text-gray-300">Extract Repertoire — 3 analyses / month</span>
+            <span class="text-gray-300">Extract Repertoire — <span class="text-gray-500">3 / month</span></span>
           </li>
           <li class="flex items-start gap-3 text-sm">
             <span style="color:#4ade80;flex-shrink:0;margin-top:1px;">✓</span>
-            <span class="text-gray-300">Strategise — 1 analysis / month</span>
+            <span class="text-gray-300">Strategise — <span class="text-gray-500">1 / month</span></span>
+          </li>
+          <li class="flex items-start gap-3 text-sm">
+            <span style="color:#4ade80;flex-shrink:0;margin-top:1px;">✓</span>
+            <span class="text-gray-300">Opponent Bots — <span class="text-gray-500">1 / month</span></span>
           </li>
         </ul>
 
@@ -143,6 +147,10 @@
           </li>
           <li class="flex items-start gap-3 text-sm">
             <span style="color:#f59e0b;flex-shrink:0;margin-top:1px;">✓</span>
+            <span class="text-gray-200 font-medium">Unlimited Opponent Bots — practice vs any player's style</span>
+          </li>
+          <li class="flex items-start gap-3 text-sm">
+            <span style="color:#f59e0b;flex-shrink:0;margin-top:1px;">✓</span>
             <span class="text-gray-200 font-medium">Priority queue</span>
           </li>
         </ul>
@@ -186,13 +194,14 @@
       </thead>
       <tbody>
         {% set rows = [
-          ("Fetch Games",              "✓", "✓",  false),
-          ("Import PGN",               "✓", "✓",  false),
-          ("Find Novelties",     "3 / mo", "∞",   true),
-          ("Analyse Habits",     "3 / mo", "∞",   true),
-          ("Extract Repertoire", "3 / mo", "∞",   true),
-          ("Strategise",         "1 / mo", "∞",  true),
-          ("Priority queue",           "—", "✓",  false),
+          ("Fetch Games",          "5 / mo", "∞",   false),
+          ("Import PGN",           "5 / mo", "∞",   false),
+          ("Find Novelties",       "3 / mo", "∞",   true),
+          ("Analyse Habits",       "3 / mo", "∞",   true),
+          ("Extract Repertoire",   "3 / mo", "∞",   true),
+          ("Strategise",           "1 / mo", "∞",   true),
+          ("Opponent Bots",        "1 / mo", "∞",   true),
+          ("Priority queue",           "—",  "✓",   false),
         ] %}
         {% for label, free_val, pro_val, highlight in rows %}
         <tr style="border-bottom:1px solid #111c2e;">
