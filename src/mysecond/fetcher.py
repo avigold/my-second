@@ -157,6 +157,7 @@ def fetch_player_games_chesscom(
     max_games: int = 10_000,
     since_ts: int | None = None,         # Unix milliseconds
     verbose: bool = True,
+    show_progress: bool = True,
     pgn_out: Path | None = None,         # write raw PGN here for game browsing
 ) -> int:
     """Download games from Chess.com and populate the cache with per-position statistics.
@@ -370,7 +371,8 @@ def _download_chesscom_pgn(
             f"[fetch]  archive {i + 1}/{n_archives} ({ym_label}) — {collected} games so far …",
             flush=True,
         )
-        print(f"[progress:{username}] {i + 1}/{n_archives}", flush=True)
+        if show_progress:
+            print(f"[progress:{username}] {i + 1}/{n_archives}", flush=True)
         try:
             resp = _chesscom_get_with_backoff(session, url)
             games = resp.json().get("games", [])

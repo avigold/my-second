@@ -78,6 +78,15 @@ def train_bot(
     """
     tag = f"[train-bot:{opponent_username}]"
 
+    # Known steps upfront: fetch + habits for each color, then elo + write.
+    total_steps = len(colors) * 2 + 2
+    step = 0
+
+    def _progress(n: int, m: int) -> None:
+        print(f"[progress:train-bot] {n}/{m}", flush=True)
+
+    _progress(step, total_steps)
+
     # ------------------------------------------------------------------
     # Step 1: Fetch games for each color.
     # ------------------------------------------------------------------
@@ -94,6 +103,7 @@ def train_bot(
                 cache=cache,
                 speeds=speeds,
                 verbose=verbose,
+                show_progress=False,
             )
         else:
             fetch_player_games(
@@ -103,6 +113,8 @@ def train_bot(
                 speeds=speeds,
                 verbose=verbose,
             )
+        step += 1
+        _progress(step, total_steps)
 
     # ------------------------------------------------------------------
     # Step 2: Analyse habits for each color.
@@ -119,6 +131,7 @@ def train_bot(
             speeds=speeds,
             platform=opponent_platform,
             verbose=verbose,
+            show_progress=False,
             eval_cache=eval_cache,
         )
         habits_by_color[color] = [
@@ -135,6 +148,8 @@ def train_bot(
                 f"{tag} {len(habits_by_color[color])} habit inaccuracies for {color}.",
                 flush=True,
             )
+        step += 1
+        _progress(step, total_steps)
 
     # ------------------------------------------------------------------
     # Step 3: Fetch Elo.
@@ -144,6 +159,8 @@ def train_bot(
     elo = _fetch_elo(opponent_username, opponent_platform, speeds)
     if verbose:
         print(f"{tag} Elo: {elo}", flush=True)
+    step += 1
+    _progress(step, total_steps)
 
     # ------------------------------------------------------------------
     # Step 4: Build and write the bot model JSON.
@@ -163,6 +180,9 @@ def train_bot(
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(model, indent=2), encoding="utf-8")
+
+    step += 1
+    _progress(step, total_steps)
 
     if verbose:
         print(f"{tag} Bot model written to {out_path}", flush=True)

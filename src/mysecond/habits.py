@@ -71,6 +71,7 @@ def analyze_habits(
     min_eval_gap: int = 25,
     depth: int = 20,
     verbose: bool = True,
+    show_progress: bool = True,
     engine_threads: int | None = None,
     eval_cache: EvalCache | None = None,
 ) -> list[HabitInaccuracy]:
@@ -195,12 +196,14 @@ def analyze_habits(
             try:
                 board = chess.Board(fen)
             except ValueError:
-                print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
+                if show_progress:
+                    print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             # Verify it's the player's turn (cache should guarantee this, but be safe).
             if board.turn != player_color:
-                print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
+                if show_progress:
+                    print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             # One MultiPV call replaces 1 + len(qualifying_moves) separate calls.
@@ -252,12 +255,14 @@ def analyze_habits(
 
                 infos = eng.analyse_multipv(board, depth=depth, multipv=multipv_k)
                 if not infos or not infos[0].get("pv"):
-                    print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
+                    if show_progress:
+                        print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                     continue
 
                 best_move = infos[0]["pv"][0]
                 if best_move not in board.legal_moves:
-                    print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
+                    if show_progress:
+                        print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                     continue
 
                 best_cp = float(
@@ -371,7 +376,8 @@ def analyze_habits(
                     flush=True,
                 )
 
-            print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
+            if show_progress:
+                print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
 
     finally:
         if eng is not None:
