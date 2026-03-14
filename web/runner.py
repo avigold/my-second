@@ -145,16 +145,18 @@ def _do_launch(
 
     def _reader() -> None:
         assert proc.stdout is not None
-        early_flushed = False
+        n = 0
         for raw_line in proc.stdout:
             line = raw_line.rstrip("\n")
             job.log_lines.append(line)
             job.queue.put(line)
-            if not early_flushed:
-                # Flush after the first line so early errors (e.g. bad username)
-                # survive a server restart without needing ongoing periodic writes.
+            n += 1
+            # Flush to DB after line 1 (early errors) and every 20 lines
+            # thereafter.  This lets the orphan watcher on a different
+            # gunicorn worker forward live progress to a cross-worker SSE
+            # stream without waiting for the job to finish.
+            if n == 1 or n % 20 == 0:
                 registry.flush_log(job.id, job.log_lines.copy())
-                early_flushed = True
         proc.wait()
         exit_code = proc.returncode
         # Preserve "cancelled" if the cancel endpoint already set it.

@@ -332,6 +332,17 @@ class JobRegistry:
             )
             conn.commit()
 
+    def get_log_lines(self, job_id: str) -> list[str]:
+        """Fetch the current log lines for a job directly from DB.
+
+        Used by the orphan watcher to forward lines to a cross-worker SSE
+        stream that can't access the original reader thread's queue.
+        """
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT log_text FROM jobs WHERE id = %s", (job_id,))
+            row = cur.fetchone()
+        return row[0].splitlines() if row and row[0] else []
+
     def resolve_orphan(self, job_id: str, status: str, exit_code: int) -> None:
         """Mark an orphaned job done/failed without touching log_text.
 
@@ -637,6 +648,10 @@ class JobRegistry:
         with self._lock:
             self._jobs[job.id] = job  # cache it so subsequent requests are fast
         if orphan:
+            # Pre-populate the queue with any log lines already in the DB so
+            # that a cross-worker SSE stream can replay them immediately.
+            for line in job.log_lines:
+                job.queue.put(line)
             threading.Thread(target=_watch_orphan, args=(job, self), daemon=True).start()
         return job
 
@@ -779,19 +794,36 @@ def _pid_alive(pid: int) -> bool:
 def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
     """Poll an orphaned subprocess until it completes or dies.
 
-    Called in a daemon thread by _load_existing() when a running job's
-    subprocess survived a gunicorn restart.  Checks the output file every
-    few seconds; when the file appears (or the PID dies) it marks the job
-    done or failed accordingly.
+    Called in a daemon thread when a running job's subprocess lives on a
+    different gunicorn worker.  Polls the DB for new log lines every few
+    seconds and forwards them to the orphan job's queue so a cross-worker
+    SSE stream sees live-ish progress.  When the output file appears (or
+    the PID dies) it marks the job done or failed accordingly.
     """
     out = Path(job.out_path) if job.out_path else None
     pid = job.pid
+    # Number of log lines already put into the queue (from _fetch_from_db).
+    emitted = len(job.log_lines)
+
+    def _drain_new_lines() -> None:
+        """Fetch any log lines added since last check and emit them."""
+        nonlocal emitted
+        all_lines = registry.get_log_lines(str(job.id))
+        for line in all_lines[emitted:]:
+            job.queue.put(line)
+            emitted += 1
 
     while True:
+        # Forward any new log lines that the other worker flushed to DB.
+        _drain_new_lines()
+
         # Output file exists → success.  We intentionally do NOT require
         # st_size > 0 because a fetch that finds 0 games writes an empty
         # PGN file and exits 0 — that is a legitimate success.
         if out and out.exists():
+            # Wait briefly for the reader thread to flush its final log.
+            time.sleep(2)
+            _drain_new_lines()
             registry.resolve_orphan(job.id, "done", 0)
             job.queue.put(None)  # SSE sentinel
             return
@@ -801,6 +833,7 @@ def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
             # being flushed to disk, then do one final file check before
             # giving up.
             time.sleep(2)
+            _drain_new_lines()
             if out and out.exists():
                 registry.resolve_orphan(job.id, "done", exit_code=0)
                 job.queue.put(None)
