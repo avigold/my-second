@@ -158,6 +158,7 @@ def fetch_player_games_chesscom(
     since_ts: int | None = None,         # Unix milliseconds
     verbose: bool = True,
     show_progress: bool = True,
+    progress_fn=None,                    # callable(n, total) → None; overrides show_progress
     pgn_out: Path | None = None,         # write raw PGN here for game browsing
 ) -> int:
     """Download games from Chess.com and populate the cache with per-position statistics.
@@ -197,7 +198,8 @@ def fetch_player_games_chesscom(
             flush=True,
         )
 
-    pgn_text = _download_chesscom_pgn(username, color, speeds, max_games, since_ts, show_progress=show_progress)
+    pgn_text = _download_chesscom_pgn(username, color, speeds, max_games, since_ts,
+                                      show_progress=show_progress, progress_fn=progress_fn)
 
     if not pgn_text.strip():
         if verbose:
@@ -310,6 +312,7 @@ def _download_chesscom_pgn(
     max_games: int,
     since_ts: int | None,
     show_progress: bool = True,
+    progress_fn=None,
 ) -> str:
     """Download PGN text from Chess.com for one player/color/speeds combination."""
     from calendar import monthrange
@@ -372,7 +375,9 @@ def _download_chesscom_pgn(
             f"[fetch]  archive {i + 1}/{n_archives} ({ym_label}) — {collected} games so far …",
             flush=True,
         )
-        if show_progress:
+        if progress_fn is not None:
+            progress_fn(i + 1, n_archives)
+        elif show_progress:
             print(f"[progress:{username}] {i + 1}/{n_archives}", flush=True)
         try:
             resp = _chesscom_get_with_backoff(session, url)

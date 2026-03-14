@@ -72,6 +72,7 @@ def analyze_habits(
     depth: int = 20,
     verbose: bool = True,
     show_progress: bool = True,
+    progress_fn=None,                    # callable(n, total) → None; overrides show_progress
     engine_threads: int | None = None,
     eval_cache: EvalCache | None = None,
 ) -> list[HabitInaccuracy]:
@@ -196,13 +197,17 @@ def analyze_habits(
             try:
                 board = chess.Board(fen)
             except ValueError:
-                if show_progress:
+                if progress_fn is not None:
+                    progress_fn(i, len(sorted_fens))
+                elif show_progress:
                     print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
             # Verify it's the player's turn (cache should guarantee this, but be safe).
             if board.turn != player_color:
-                if show_progress:
+                if progress_fn is not None:
+                    progress_fn(i, len(sorted_fens))
+                elif show_progress:
                     print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
                 continue
 
@@ -376,7 +381,9 @@ def analyze_habits(
                     flush=True,
                 )
 
-            if show_progress:
+            if progress_fn is not None:
+                progress_fn(i, len(sorted_fens))
+            elif show_progress:
                 print(f"[progress:{username}] {i}/{len(sorted_fens)}", flush=True)
 
     finally:

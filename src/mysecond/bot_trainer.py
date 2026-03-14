@@ -78,14 +78,25 @@ def train_bot(
     """
     tag = f"[train-bot:{opponent_username}]"
 
-    # Known steps upfront: fetch + habits for each color, then elo + write.
-    total_steps = len(colors) * 2 + 2
-    step = 0
+    # Known stages: fetch + habits for each color, then elo + write.
+    # Use 100 sub-units per stage so we can show smooth sub-progress.
+    n_stages = len(colors) * 2 + 2
+    SCALE = 100
+    total_scaled = n_stages * SCALE
 
-    def _progress(n: int, m: int) -> None:
-        print(f"[progress:train-bot] {n}/{m}", flush=True)
+    def _emit(scaled_n: int) -> None:
+        print(f"[progress:train-bot] {scaled_n}/{total_scaled}", flush=True)
 
-    _progress(step, total_steps)
+    def _stage_progress_fn(stage_idx: int):
+        """Return a callback that maps sub-step (n, total) into the global scale."""
+        base = stage_idx * SCALE
+        def fn(n: int, total: int) -> None:
+            sub = round(n / total * SCALE) if total > 0 else SCALE
+            _emit(base + sub)
+        return fn
+
+    stage = 0
+    _emit(0)
 
     # ------------------------------------------------------------------
     # Step 1: Fetch games for each color.
@@ -104,6 +115,7 @@ def train_bot(
                 speeds=speeds,
                 verbose=verbose,
                 show_progress=False,
+                progress_fn=_stage_progress_fn(stage),
             )
         else:
             fetch_player_games(
@@ -113,8 +125,8 @@ def train_bot(
                 speeds=speeds,
                 verbose=verbose,
             )
-        step += 1
-        _progress(step, total_steps)
+        stage += 1
+        _emit(stage * SCALE)
 
     # ------------------------------------------------------------------
     # Step 2: Analyse habits for each color.
@@ -132,6 +144,7 @@ def train_bot(
             platform=opponent_platform,
             verbose=verbose,
             show_progress=False,
+            progress_fn=_stage_progress_fn(stage),
             eval_cache=eval_cache,
         )
         habits_by_color[color] = [
@@ -148,8 +161,8 @@ def train_bot(
                 f"{tag} {len(habits_by_color[color])} habit inaccuracies for {color}.",
                 flush=True,
             )
-        step += 1
-        _progress(step, total_steps)
+        stage += 1
+        _emit(stage * SCALE)
 
     # ------------------------------------------------------------------
     # Step 3: Fetch Elo.
@@ -159,8 +172,8 @@ def train_bot(
     elo = _fetch_elo(opponent_username, opponent_platform, speeds)
     if verbose:
         print(f"{tag} Elo: {elo}", flush=True)
-    step += 1
-    _progress(step, total_steps)
+    stage += 1
+    _emit(stage * SCALE)
 
     # ------------------------------------------------------------------
     # Step 4: Build and write the bot model JSON.
@@ -181,8 +194,8 @@ def train_bot(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(model, indent=2), encoding="utf-8")
 
-    step += 1
-    _progress(step, total_steps)
+    stage += 1
+    _emit(stage * SCALE)
 
     if verbose:
         print(f"{tag} Bot model written to {out_path}", flush=True)
