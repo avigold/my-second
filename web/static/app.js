@@ -59,7 +59,8 @@ async function validateUsername(username, platform) {
       : (atLimit ? `Monthly limit reached (${used}/${limit})` : `${used} of ${limit} used this month`);
 
     const noun = { search: 'novelty searches', habits: 'habits analyses',
-                   repertoire: 'repertoire extractions', strategise: 'strategy briefs' }[cmd] || 'analyses';
+                   repertoire: 'repertoire extractions', strategise: 'strategy briefs',
+                   'train-bot': 'bots trained' }[cmd] || 'analyses';
 
     let html;
     if (atLimit) {

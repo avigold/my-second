@@ -577,7 +577,7 @@ def _kill_job_process(job) -> None:
 # Plan / freemium helpers
 # ---------------------------------------------------------------------------
 
-_FREE_LIMITS: dict[str, int] = {"search": 3, "habits": 3, "repertoire": 3, "strategise": 1}
+_FREE_LIMITS: dict[str, int] = {"search": 3, "habits": 3, "repertoire": 3, "strategise": 1, "train-bot": 1}
 _PRO_ONLY: set[str] = set()
 
 
@@ -1256,6 +1256,8 @@ def api_create_bot():
 
     user = get_current_user()
     if err := _check_user_job_limit(user):
+        return err
+    if err := _check_plan_limit(user, "train-bot"):
         return err
 
     # Create the training job.
