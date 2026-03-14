@@ -26,6 +26,69 @@ async function validateUsername(username, platform) {
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Usage meters — injected before the submit button on gated form pages.
+// ---------------------------------------------------------------------------
+
+(async function renderUsageMeters() {
+  const forms = document.querySelectorAll('form[data-command]');
+  if (!forms.length) return;
+
+  let data;
+  try {
+    const res = await fetch('/api/usage');
+    if (!res.ok) return;
+    data = await res.json();
+  } catch { return; }
+
+  const { plan, usage } = data;
+  if (plan === 'pro') return;  // pro users see no meter
+
+  forms.forEach(form => {
+    const cmd = form.dataset.command;
+    const info = usage[cmd];
+    if (!info || info.limit === null) return;
+
+    const { used, limit } = info;
+    const pct = Math.min(100, Math.round((used / limit) * 100));
+    const atLimit = used >= limit;
+    const nearLimit = pct >= 67;
+
+    const label = limit === 1
+      ? (atLimit ? 'Monthly limit reached (1/1)' : `${used} of 1 used this month`)
+      : (atLimit ? `Monthly limit reached (${used}/${limit})` : `${used} of ${limit} used this month`);
+
+    const noun = { search: 'novelty searches', habits: 'habits analyses',
+                   repertoire: 'repertoire extractions', strategise: 'strategy briefs' }[cmd] || 'analyses';
+
+    let html;
+    if (atLimit) {
+      html = `
+        <div id="usage-meter" class="mb-4 flex items-center justify-between
+             bg-red-950/60 border border-red-800/60 rounded-lg px-3 py-2 text-xs">
+          <span class="text-red-400 font-medium">${label}</span>
+          <a href="/pricing" class="text-amber-400 hover:text-amber-300 font-semibold ml-4 shrink-0">Upgrade to Pro →</a>
+        </div>`;
+    } else {
+      const barColor = nearLimit ? 'bg-amber-400' : 'bg-amber-500';
+      const textColor = nearLimit ? 'text-amber-300' : 'text-gray-400';
+      html = `
+        <div id="usage-meter" class="mb-4">
+          <div class="flex items-center justify-between text-xs mb-1.5">
+            <span class="${textColor}">${label} · ${noun}</span>
+            <a href="/pricing" class="text-amber-400 hover:text-amber-300 font-medium ml-4 shrink-0">Upgrade →</a>
+          </div>
+          <div class="h-1 bg-gray-800 rounded-full overflow-hidden">
+            <div class="${barColor} h-1 rounded-full" style="width:${pct}%"></div>
+          </div>
+        </div>`;
+    }
+
+    const btn = form.querySelector('#submit-btn');
+    if (btn) btn.insertAdjacentHTML('beforebegin', html);
+  });
+})();
+
 document.querySelectorAll('form[data-api]').forEach(form => {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

@@ -413,6 +413,23 @@ def api_jobs():
     return jsonify(registry.list_for_user(user["id"]))
 
 
+@app.get("/api/usage")
+def api_usage():
+    """Return the current user's monthly usage and plan for metering on form pages."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"plan": "free", "usage": {}})
+    plan = _effective_plan(user)
+    usage = {
+        cmd: {
+            "used":  registry.count_monthly_jobs(user["id"], cmd),
+            "limit": None if plan == "pro" else _FREE_LIMITS.get(cmd),
+        }
+        for cmd in _FREE_LIMITS
+    }
+    return jsonify({"plan": plan, "usage": usage})
+
+
 @app.get("/api/validate-user")
 def api_validate_user():
     """Check whether a username exists on Lichess or Chess.com.
