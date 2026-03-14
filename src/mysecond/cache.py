@@ -10,6 +10,21 @@ from pathlib import Path
 from typing import Any
 
 
+def _norm_fen(fen: str) -> str:
+    """Normalise a FEN for use as a cache key by stripping the en-passant field.
+
+    Python's ``chess`` library always includes the e.p. square (e.g. ``e6``),
+    while chess.js v1+ omits it when no pawn can actually capture.  Stripping
+    the field from both stored keys and lookups makes the two representations
+    interchangeable, which is safe for opening-book purposes because e.p.
+    captures are essentially never the right book move.
+    """
+    parts = fen.split(" ")
+    if len(parts) >= 4:
+        parts[3] = "-"
+    return " ".join(parts)
+
+
 class Cache:
     """Persistent key-value store keyed by (fen, backend).
 
@@ -48,7 +63,7 @@ class Cache:
         with self._lock:
             row = self._conn.execute(
                 "SELECT payload FROM explorer_cache WHERE fen = ? AND backend = ?",
-                (fen, backend),
+                (_norm_fen(fen), backend),
             ).fetchone()
         return json.loads(row[0]) if row else None
 
@@ -60,7 +75,7 @@ class Cache:
                 INSERT OR REPLACE INTO explorer_cache (fen, backend, payload, ts)
                 VALUES (?, ?, ?, ?)
                 """,
-                (fen, backend, json.dumps(data), time.time()),
+                (_norm_fen(fen), backend, json.dumps(data), time.time()),
             )
             self._conn.commit()
 
@@ -69,7 +84,7 @@ class Cache:
 
         *entries* is a list of (fen, backend, data) tuples.
         """
-        rows = [(fen, backend, json.dumps(data), time.time()) for fen, backend, data in entries]
+        rows = [(_norm_fen(fen), backend, json.dumps(data), time.time()) for fen, backend, data in entries]
         with self._lock:
             self._conn.executemany(
                 """
