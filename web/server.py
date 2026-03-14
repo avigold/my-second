@@ -118,7 +118,9 @@ def require_login():
 
 @app.context_processor
 def inject_current_user():
-    return {"current_user": get_current_user()}
+    user = get_current_user()
+    plan = _effective_plan(user) if user else None
+    return {"current_user": user, "current_plan": plan}
 
 
 # ---------------------------------------------------------------------------

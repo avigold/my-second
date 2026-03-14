@@ -148,6 +148,9 @@
 
       <a href="/jobs" class="text-sm text-gray-300 hover:text-amber-400 transition-colors ml-auto">Job History</a>
       {% if current_user %}
+        {% if current_plan != 'pro' %}
+        <a href="/pricing" class="text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors border border-amber-800 hover:border-amber-600 px-3 py-1 rounded-full">Upgrade →</a>
+        {% endif %}
         {% if current_user.role == 'admin' %}
         <a href="/admin" class="text-xs text-purple-400 hover:text-purple-300 transition-colors">Admin</a>
         {% endif %}
