@@ -1389,14 +1389,10 @@ def api_bot_move(bot_id: str):
         if cached and cached.get("moves"):
             moves = cached["moves"]
 
-            # Check for habit injection first (habits keyed by ep-stripped FEN too).
-            if lookup_fen in habits_by_fen:
-                h = habits_by_fen[lookup_fen]
-                prob = h["games"] / h["total"] if h["total"] > 0 else 0
-                if random.random() < prob:
-                    return jsonify({"uci": h["player_move_uci"], "source": "habit"})
-
             # Weighted-random move from the opening cache.
+            # NOTE: do NOT inject habits here — the cache already reflects the
+            # player's historical frequency (including rare/suboptimal choices).
+            # Injecting on top would double-count those moves.
             weights = [
                 m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)
                 for m in moves
