@@ -370,6 +370,7 @@ def _download_chesscom_pgn(
             f"[fetch]  archive {i + 1}/{n_archives} ({ym_label}) — {collected} games so far …",
             flush=True,
         )
+        print(f"[progress:{username}] {i + 1}/{n_archives}", flush=True)
         try:
             resp = _chesscom_get_with_backoff(session, url)
             games = resp.json().get("games", [])
