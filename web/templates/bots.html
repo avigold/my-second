@@ -141,7 +141,7 @@ document.getElementById('bot-form').addEventListener('submit', async (e) => {
   const errEl = document.getElementById('bot-error');
   errEl.classList.add('hidden');
   btn.disabled = true;
-  btn.textContent = 'Creating…';
+  btn.textContent = 'Checking…';
 
   const form = e.target;
   const payload = {
@@ -152,6 +152,12 @@ document.getElementById('bot-form').addEventListener('submit', async (e) => {
   };
 
   try {
+    // Validate the opponent username before creating the bot.
+    const check = await validateUsername(payload.opponent_username, payload.platform);
+    if (!check.valid) throw new Error(check.error);
+    payload.opponent_username = check.username;  // canonical casing
+    btn.textContent = 'Creating…';
+
     const res = await fetch('/api/bots', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -168,7 +174,7 @@ document.getElementById('bot-form').addEventListener('submit', async (e) => {
     // Redirect to the training job page so the user can watch progress.
     window.location.href = `/jobs/${data.job_id}`;
   } catch (err) {
-    errEl.textContent = 'Network error. Please try again.';
+    errEl.textContent = err.message || 'Network error. Please try again.';
     errEl.classList.remove('hidden');
     btn.disabled = false;
     btn.textContent = 'Create Bot';

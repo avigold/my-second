@@ -105,7 +105,7 @@ document.getElementById('strategise-form').addEventListener('submit', async (e) 
   const btn = document.getElementById('submit-btn');
   const err = document.getElementById('error-msg');
   btn.disabled = true;
-  btn.textContent = 'Starting…';
+  btn.textContent = 'Checking…';
   err.classList.add('hidden');
 
   const params = {
@@ -123,6 +123,16 @@ document.getElementById('strategise-form').addEventListener('submit', async (e) 
   };
 
   try {
+    // Validate both usernames before launching the job.
+    for (const [userField, platformField] of [['player','player_platform'],['opponent','opponent_platform']]) {
+      const username = params[userField];
+      if (!username) continue;
+      const result = await validateUsername(username, params[platformField] || 'lichess');
+      if (!result.valid) throw new Error(result.error);
+      params[userField] = result.username;  // canonical casing
+    }
+    btn.textContent = 'Starting…';
+
     const res  = await fetch('/api/strategise', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

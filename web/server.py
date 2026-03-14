@@ -6,6 +6,8 @@ import json
 import os
 import queue
 import signal
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 import chess
@@ -409,6 +411,48 @@ def api_jobs():
     if not user:
         return jsonify([])
     return jsonify(registry.list_for_user(user["id"]))
+
+
+@app.get("/api/validate-user")
+def api_validate_user():
+    """Check whether a username exists on Lichess or Chess.com.
+
+    Returns {valid: true, username: "<canonical>"} on success or
+    {valid: false, error: "<message>"} on failure.  Used by forms to
+    give instant feedback before launching a job.
+    """
+    username = request.args.get("username", "").strip()
+    platform = request.args.get("platform", "lichess").strip()
+    if not username:
+        return jsonify({"valid": False, "error": "Username is required"})
+
+    try:
+        if platform == "lichess":
+            url = f"https://lichess.org/api/user/{username}"
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = json.loads(resp.read())
+            return jsonify({"valid": True, "username": data.get("username", username)})
+
+        elif platform == "chesscom":
+            url = f"https://api.chess.com/pub/player/{username}"
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "mysecond.app chess analysis"}
+            )
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = json.loads(resp.read())
+            return jsonify({"valid": True, "username": data.get("username", username)})
+
+        else:
+            return jsonify({"valid": False, "error": "Unknown platform"})
+
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            platform_label = "Lichess" if platform == "lichess" else "Chess.com"
+            return jsonify({"valid": False, "error": f"'{username}' not found on {platform_label}"})
+        return jsonify({"valid": False, "error": "Could not reach the chess platform — try again"})
+    except Exception:
+        return jsonify({"valid": False, "error": "Could not reach the chess platform — try again"})
 
 
 @app.get("/api/jobs/<job_id>")
