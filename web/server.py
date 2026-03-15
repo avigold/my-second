@@ -1391,19 +1391,30 @@ def api_bot_move(bot_id: str):
             # NOTE: do NOT inject habits here — the cache already reflects the
             # player's historical frequency (including rare/suboptimal choices).
             # Injecting on top would double-count those moves.
-            weights = [
-                m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)
+            #
+            # Filter out moves with fewer than 5 games to avoid rare sidelines
+            # dominating when the weighted-random gets unlucky.
+            _MIN_MOVE_GAMES = 5
+            weighted_moves = [
+                (m, m.get("white", 0) + m.get("draws", 0) + m.get("black", 0))
                 for m in moves
             ]
-            total_weight = sum(weights)
+            weighted_moves = [(m, w) for m, w in weighted_moves if w >= _MIN_MOVE_GAMES]
+            # Fall back to all moves if filtering removed everything.
+            if not weighted_moves:
+                weighted_moves = [
+                    (m, m.get("white", 0) + m.get("draws", 0) + m.get("black", 0))
+                    for m in moves
+                ]
+            total_weight = sum(w for _, w in weighted_moves)
             if total_weight > 0:
                 r = random.uniform(0, total_weight)
                 cumulative = 0.0
-                for m, w in zip(moves, weights):
+                for m, w in weighted_moves:
                     cumulative += w
                     if r <= cumulative:
                         return jsonify({"uci": m["uci"], "source": "opening"})
-            return jsonify({"uci": moves[0]["uci"], "source": "opening"})
+            return jsonify({"uci": weighted_moves[0][0]["uci"], "source": "opening"})
 
     # ------------------------------------------------------------------
     # 2. Post-opening habit injection
