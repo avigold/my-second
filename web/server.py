@@ -1381,8 +1381,17 @@ def api_bot_move(bot_id: str):
     lookup_fen = _norm_lookup(fen)
 
     backend_key = model.get(f"cache_backend_{color}")
+    _dbg: dict = {
+        "fen_received": fen,
+        "fen_normalized": lookup_fen,
+        "backend_key": backend_key,
+        "cache_hit": False,
+        "moves_in_cache": 0,
+    }
     if backend_key:
         cached = _opening_cache.get(lookup_fen, backend_key)
+        _dbg["cache_hit"] = cached is not None
+        _dbg["moves_in_cache"] = len(cached.get("moves", [])) if cached else 0
 
         if cached and cached.get("moves"):
             moves = cached["moves"]
@@ -1402,8 +1411,8 @@ def api_bot_move(bot_id: str):
                 for m, w in zip(moves, weights):
                     cumulative += w
                     if r <= cumulative:
-                        return jsonify({"uci": m["uci"], "source": "opening"})
-            return jsonify({"uci": moves[0]["uci"], "source": "opening"})
+                        return jsonify({"uci": m["uci"], "source": "opening", "_debug": _dbg})
+            return jsonify({"uci": moves[0]["uci"], "source": "opening", "_debug": _dbg})
 
     # ------------------------------------------------------------------
     # 2. Post-opening habit injection
@@ -1412,7 +1421,7 @@ def api_bot_move(bot_id: str):
         h = habits_by_fen[lookup_fen]
         prob = h["games"] / h["total"] if h["total"] > 0 else 0
         if random.random() < prob:
-            return jsonify({"uci": h["player_move_uci"], "source": "habit"})
+            return jsonify({"uci": h["player_move_uci"], "source": "habit", "_debug": _dbg})
 
     # ------------------------------------------------------------------
     # 3. Maia engine (falls back to Stockfish if maia2 is not installed)
@@ -1422,7 +1431,7 @@ def api_bot_move(bot_id: str):
         uci = maia_engine.get_move(fen, elo)
         if uci is None:
             return jsonify({"error": "engine returned no move"}), 500
-        return jsonify({"uci": uci, "source": "engine"})
+        return jsonify({"uci": uci, "source": "engine", "_debug": _dbg})
     except Exception as exc:
         return jsonify({"error": f"Engine error: {exc}"}), 500
 
