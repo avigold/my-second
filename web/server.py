@@ -1392,28 +1392,24 @@ def api_bot_move(bot_id: str):
             # player's historical frequency (including rare/suboptimal choices).
             # Injecting on top would double-count those moves.
             #
-            # Filter out moves with fewer than 5 games to avoid rare sidelines
-            # dominating when the weighted-random gets unlucky.
-            _MIN_MOVE_GAMES = 5
+            # Only consider moves with >= 10 games to avoid rare sidelines.
+            # If nothing clears the bar, fall back to the single top move.
+            _MIN_MOVE_GAMES = 10
             weighted_moves = [
                 (m, m.get("white", 0) + m.get("draws", 0) + m.get("black", 0))
                 for m in moves
             ]
             weighted_moves = [(m, w) for m, w in weighted_moves if w >= _MIN_MOVE_GAMES]
-            # Fall back to all moves if filtering removed everything.
             if not weighted_moves:
-                weighted_moves = [
-                    (m, m.get("white", 0) + m.get("draws", 0) + m.get("black", 0))
-                    for m in moves
-                ]
+                # All moves are below threshold — play the most common one.
+                return jsonify({"uci": moves[0]["uci"], "source": "opening"})
             total_weight = sum(w for _, w in weighted_moves)
-            if total_weight > 0:
-                r = random.uniform(0, total_weight)
-                cumulative = 0.0
-                for m, w in weighted_moves:
-                    cumulative += w
-                    if r <= cumulative:
-                        return jsonify({"uci": m["uci"], "source": "opening"})
+            r = random.uniform(0, total_weight)
+            cumulative = 0.0
+            for m, w in weighted_moves:
+                cumulative += w
+                if r <= cumulative:
+                    return jsonify({"uci": m["uci"], "source": "opening"})
             return jsonify({"uci": weighted_moves[0][0]["uci"], "source": "opening"})
 
     # ------------------------------------------------------------------
