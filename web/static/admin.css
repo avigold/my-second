@@ -1,0 +1,52 @@
+.stat-card {
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 20px 16px;
+  text-align: center;
+}
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #c084fc;
+  font-family: monospace;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+.stat-label {
+  font-size: 0.65rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.admin-table-row td { border-bottom: 1px solid #111827; }
+.admin-table-row:last-child td { border-bottom: none; }
+.admin-table-row:hover td { background: rgba(255,255,255,0.015); }
+
+.role-select {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 4px;
+  color: #d1d5db;
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.role-select:focus { border-color: #c084fc; outline: none; }
+
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.badge-pro      { background:#064e3b; color:#4ade80; }
+.badge-free     { background:#1f2937; color:#6b7280; }
+.badge-admin    { background:#3b0764; color:#c084fc; }
+.badge-titled   { background:#1c1917; color:#f59e0b; }
+.badge-running  { background:#1e3a5f; color:#60a5fa; }
+.badge-done     { background:#052e16; color:#4ade80; }
+.badge-failed   { background:#450a0a; color:#f87171; }
+.badge-queued   { background:#1c1917; color:#fbbf24; }
+.badge-other    { background:#1f2937; color:#6b7280; }
