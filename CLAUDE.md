@@ -1,5 +1,24 @@
 # mysecond — Project Context for Claude
 
+## CRITICAL DEPLOYMENT RULES — READ FIRST
+
+These rules exist because an AI assistant once silently deployed unfinished features to production by merging a feature branch that was built on top of another feature branch. **These rules are non-negotiable.**
+
+1. **Never merge to `main` or deploy without explicit per-session user confirmation.** "We'll need to merge and deploy" in a previous session does not count. Ask every time.
+2. **Before any merge to `main`, run `git log main..<branch> --oneline` and show the full commit list to the user.** The user must acknowledge every commit that will land.
+3. **Feature branches must never be built on top of other feature branches** unless the user explicitly intends both to ship together. If a branch was built off another feature branch, flag this before merging.
+4. **Never force-push to `main` without explicit user confirmation** stating "yes, force push."
+5. **If a session ends mid-task, do not resume destructive or deployment actions in the next session** without re-confirming intent with the user.
+
+## Code organisation rules
+
+1. **HTML files contain HTML only.** No `<script>` blocks, no `<style>` blocks. The only exception is a single `<script src="...">` or `<link rel="stylesheet">` reference in a `{% block %}`.
+2. **JavaScript goes in `web/static/*.js`.** Before adding JS anywhere, check `web/static/` for an existing file that owns that page's logic.
+3. **CSS goes in `web/static/*.css`.** Page-specific styles go in a dedicated file (e.g. `admin.css`), not inline.
+4. **Before writing any frontend code, read the relevant files in `web/static/` first** to understand the existing conventions.
+
+---
+
 ## What this is
 
 A chess analysis SaaS at **https://mysecond.app**. Players provide their Lichess or Chess.com username and run analysis jobs. The product is built around five tools:

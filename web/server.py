@@ -39,6 +39,7 @@ from auth import (
     set_session_user,
 )
 
+import backup as backup_module
 from bots import BotManager
 from habits_parser import parse_habits
 from jobs import Job, JobRegistry
@@ -1516,6 +1517,51 @@ def api_admin_set_role(user_id: str):
     if not found:
         return jsonify({"error": "User not found"}), 404
     return jsonify({"status": "ok", "role": role})
+
+
+# ---------------------------------------------------------------------------
+# Admin backup routes
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/admin/backup")
+def admin_create_backup():
+    _require_admin()
+    body = request.get_json(silent=True) or {}
+    result = backup_module.create_backup(description=body.get("description", ""))
+    return jsonify(result)
+
+
+@app.get("/api/admin/backups")
+def admin_list_backups():
+    _require_admin()
+    return jsonify(backup_module.list_backups())
+
+
+@app.post("/api/admin/backups/<backup_id>/restore")
+def admin_restore_backup(backup_id: str):
+    _require_admin()
+    try:
+        result = backup_module.restore_backup(backup_id)
+        return jsonify(result)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.delete("/api/admin/backups/<backup_id>")
+def admin_delete_backup(backup_id: str):
+    _require_admin()
+    try:
+        backup_module.delete_backup(backup_id)
+        return jsonify({"ok": True})
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.get("/api/admin/backups/<op_id>/status")
+def admin_backup_status(op_id: str):
+    _require_admin()
+    return jsonify(backup_module.get_status(op_id))
 
 
 # ---------------------------------------------------------------------------
