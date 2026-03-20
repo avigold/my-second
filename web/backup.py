@@ -13,6 +13,7 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", str(REPO_ROOT / "data")))
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", str(DATA_DIR / "backups")))
 PLAYERS_DIR = DATA_DIR / "players"
 PHOTOS_DIR = REPO_ROOT / "web" / "static" / "player-photos"
+OUTPUT_DIR = DATA_DIR / "output"   # bot model JSONs live here as {job_id}.json
 
 _status: dict = {}
 _lock = threading.Lock()
@@ -87,7 +88,7 @@ def create_backup(description: str = "") -> dict:
             else:
                 db_path.write_text("-- No DATABASE_URL configured\n")
 
-            # 3. Archive players dir + photos
+            # 3. Archive players dir, photos, and bot model JSONs
             _update(backup_id, message="Archiving files…")
             files_path = backup_path / "files.tar.gz"
             with tarfile.open(files_path, "w:gz") as tar:
@@ -95,6 +96,11 @@ def create_backup(description: str = "") -> dict:
                     tar.add(PLAYERS_DIR, arcname="players")
                 if PHOTOS_DIR.exists():
                     tar.add(PHOTOS_DIR, arcname="player-photos")
+                # Only back up JSON files from output — these are bot models.
+                # PGN files (.pgn) are large job outputs that can be regenerated.
+                if OUTPUT_DIR.exists():
+                    for f in OUTPUT_DIR.glob("*.json"):
+                        tar.add(f, arcname=f"bots/{f.name}")
 
             # 4. meta.json
             db_size = db_path.stat().st_size if db_path.exists() else 0
@@ -188,6 +194,7 @@ def restore_backup(backup_id: str) -> dict:
                     shutil.rmtree(PHOTOS_DIR)
                 PLAYERS_DIR.mkdir(parents=True, exist_ok=True)
                 PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+                OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
                 with tarfile.open(files_path, "r:gz") as tar:
                     for member in tar.getmembers():
@@ -199,6 +206,10 @@ def restore_backup(backup_id: str) -> dict:
                             member.name = member.name[len("player-photos/"):]
                             if member.name:
                                 tar.extract(member, PHOTOS_DIR)
+                        elif member.name.startswith("bots/"):
+                            member.name = member.name[len("bots/"):]
+                            if member.name:
+                                tar.extract(member, OUTPUT_DIR)
 
             # 3. Read git commit from meta
             meta_path = backup_path / "meta.json"
