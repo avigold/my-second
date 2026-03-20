@@ -221,6 +221,49 @@
   </div>
 </section>
 
+<!-- ─── Backups ──────────────────────────────────────────────────────── -->
+<section class="mb-10">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Backups</h2>
+    <button onclick="toggleBackupForm()" class="btn-secondary text-xs">+ Create Backup</button>
+  </div>
+
+  <!-- Create form (hidden by default) -->
+  <div id="backup-form" style="display:none;"
+       class="rounded-xl border border-gray-800 p-4 mb-4 flex flex-col sm:flex-row gap-3 items-start sm:items-end"
+       style="background:#0f172a;">
+    <div class="flex-1">
+      <label class="form-label">Description (optional)</label>
+      <input id="backup-description" type="text" class="form-input" placeholder="e.g. before deploying players feature">
+    </div>
+    <button onclick="createBackup()" class="btn-primary text-xs shrink-0">Run Backup</button>
+  </div>
+
+  <!-- Status banner -->
+  <div id="backup-status" style="display:none;"
+       class="rounded-lg px-4 py-3 mb-4 text-sm border border-blue-900 bg-blue-950/30 text-blue-300">
+  </div>
+
+  <!-- Backups table -->
+  <div class="rounded-xl border border-gray-800 overflow-hidden">
+    <table class="w-full text-xs">
+      <thead>
+        <tr class="border-b border-gray-800 text-gray-500 uppercase tracking-wider">
+          <th class="px-4 py-2 text-left font-medium">Created</th>
+          <th class="px-4 py-2 text-left font-medium">Description</th>
+          <th class="px-4 py-2 text-left font-medium">Commit</th>
+          <th class="px-4 py-2 text-left font-medium">DB</th>
+          <th class="px-4 py-2 text-left font-medium">Files</th>
+          <th class="px-4 py-2 text-left font-medium">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="backups-list">
+        <tr><td colspan="6" class="px-4 py-6 text-center text-gray-600">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
 {% endblock %}
 
 {% block scripts %}
@@ -621,9 +664,134 @@ async function deletePlayer(slug) {
   } catch(e) { alert(`Network error: ${e}`); }
 }
 
+// ─── Backups ──────────────────────────────────────────────────────────
+function toggleBackupForm() {
+  const f = document.getElementById('backup-form');
+  f.style.display = f.style.display === 'none' ? 'flex' : 'none';
+}
+
+function showBackupStatus(msg, type = 'info') {
+  const el = document.getElementById('backup-status');
+  const colors = {
+    info:    'border-blue-900 bg-blue-950/30 text-blue-300',
+    success: 'border-green-900 bg-green-950/30 text-green-300',
+    error:   'border-red-900 bg-red-950/30 text-red-300',
+  };
+  el.className = `rounded-lg px-4 py-3 mb-4 text-sm border ${colors[type] || colors.info}`;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function hideBackupStatus() {
+  document.getElementById('backup-status').style.display = 'none';
+}
+
+function pollBackupStatus(opId, onDone) {
+  const interval = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/admin/backups/${opId}/status`);
+      const data = await res.json();
+      if (data.status === 'running') {
+        showBackupStatus(data.message || 'Working…', 'info');
+      } else if (data.status === 'done') {
+        clearInterval(interval);
+        showBackupStatus(data.message || 'Done.', 'success');
+        onDone && onDone();
+      } else if (data.status === 'failed') {
+        clearInterval(interval);
+        showBackupStatus(`Failed: ${data.message}`, 'error');
+      }
+    } catch (e) {
+      clearInterval(interval);
+      showBackupStatus(`Error polling status: ${e}`, 'error');
+    }
+  }, 2000);
+}
+
+async function createBackup() {
+  const description = document.getElementById('backup-description').value.trim();
+  showBackupStatus('Creating backup…', 'info');
+  document.getElementById('backup-form').style.display = 'none';
+  try {
+    const res = await fetch('/api/admin/backup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description }),
+    });
+    const data = await res.json();
+    pollBackupStatus(data.id, () => {
+      document.getElementById('backup-description').value = '';
+      loadBackups();
+    });
+  } catch (e) {
+    showBackupStatus(`Error: ${e}`, 'error');
+  }
+}
+
+async function loadBackups() {
+  const tbody = document.getElementById('backups-list');
+  try {
+    const res = await fetch('/api/admin/backups');
+    const backups = await res.json();
+    if (!backups.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-600">No backups yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = backups.map(b => {
+      const date = new Date(b.created_at).toLocaleString();
+      const commit = (b.git_commit || 'unknown').slice(0, 8);
+      const desc = b.description || '—';
+      return `<tr class="border-b border-gray-900 hover:bg-white/[0.02]">
+        <td class="px-4 py-3 font-mono text-gray-400">${date}</td>
+        <td class="px-4 py-3 text-gray-300">${desc}</td>
+        <td class="px-4 py-3 font-mono text-amber-500">${commit}</td>
+        <td class="px-4 py-3 text-gray-500">${b.db_size_fmt || '—'}</td>
+        <td class="px-4 py-3 text-gray-500">${b.files_size_fmt || '—'}</td>
+        <td class="px-4 py-3 flex gap-2">
+          <button onclick="restoreBackup('${b.id}','${commit}')"
+                  class="text-xs px-2 py-1 rounded bg-blue-700 hover:bg-blue-600 text-white">Restore</button>
+          <button onclick="deleteBackup('${b.id}')"
+                  class="text-xs px-2 py-1 rounded bg-red-900/50 hover:bg-red-800 text-red-300">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-4 text-center text-red-500 text-xs">Error: ${e}</td></tr>`;
+  }
+}
+
+async function restoreBackup(id, commitShort) {
+  if (!confirm(
+    `Restore backup ${id}?\n\n` +
+    `Git commit at backup time: ${commitShort}\n\n` +
+    `This will overwrite the current database and player files. ` +
+    `The server will need to be restarted after restore. Continue?`
+  )) return;
+  showBackupStatus('Restoring…', 'info');
+  try {
+    const res = await fetch(`/api/admin/backups/${id}/restore`, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) { showBackupStatus(`Error: ${data.error}`, 'error'); return; }
+    pollBackupStatus(data.id, () => loadBackups());
+  } catch (e) {
+    showBackupStatus(`Error: ${e}`, 'error');
+  }
+}
+
+async function deleteBackup(id) {
+  if (!confirm(`Delete backup ${id}? This cannot be undone.`)) return;
+  try {
+    await fetch(`/api/admin/backups/${id}`, { method: 'DELETE' });
+    loadBackups();
+  } catch (e) {
+    showBackupStatus(`Error deleting: ${e}`, 'error');
+  }
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────
 loadStats();
 loadPlayers();
 loadUsers().then(() => loadJobs());
+loadBackups();
 </script>
 {% endblock %}
