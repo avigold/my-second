@@ -39,6 +39,7 @@
       <a href="/strategise" class="btn-secondary">Strategise</a>
       <a href="/search"     class="btn-secondary">Find Novelties</a>
       <a href="/repertoire" class="btn-secondary">Extract Repertoire</a>
+      <a href="/bots"       class="btn-secondary">Opponent Bots</a>
       <a href="/fetch"      class="btn-secondary">Fetch Games</a>
     </div>
   </div>
@@ -80,7 +81,7 @@
 
   <a href="/habits" class="feature-card group block rounded-xl p-5 border transition-all duration-200 no-underline"
      style="background:#0f172a;border-color:#1f2937;">
-    <div class="text-2xl mb-3 opacity-80">♞</div>
+    <div class="text-2xl mb-3 opacity-80">♘</div>
     <h3 class="font-semibold text-white text-sm mb-2 group-hover:text-amber-400 transition-colors">Analyse Habits</h3>
     <p class="text-gray-500 text-xs leading-relaxed">
       Discover positions where you consistently play a suboptimal move — then drill the fix.
@@ -115,6 +116,53 @@
   </a>
 
 </div>
+
+<!-- ─── Featured Players ──────────────────────────────────────────── -->
+{% if featured_players %}
+<div class="rounded-xl border border-gray-800 overflow-hidden mb-12" style="background:#0a1220;">
+  <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+    <div>
+      <span class="text-sm font-semibold text-white">Practice against top players</span>
+      <span class="text-xs text-gray-500 ml-2">· opening repertoires built from real games</span>
+    </div>
+    <a href="/players" class="text-xs text-amber-500 hover:underline shrink-0">Browse all →</a>
+  </div>
+  <div class="flex gap-0 overflow-x-auto">
+    {% for p in featured_players %}
+    <a href="/players/{{ p.slug }}"
+       style="flex:1;min-width:140px;max-width:200px;position:relative;height:180px;overflow:hidden;
+              text-decoration:none;flex-shrink:0;border-right:1px solid #1f2937;"
+       class="player-thumb-card">
+      {% if p.photo_url or p.avatar_url %}
+      <img src="{{ p.photo_url or p.avatar_url }}" alt="{{ p.display_name }}"
+           style="width:100%;height:100%;object-fit:cover;
+                  object-position:center {{ p.photo_position if p.photo_position is not none else 25 }}%;
+                  display:block;">
+      {% else %}
+      <div style="width:100%;height:100%;background:linear-gradient(160deg,#0d1f3c,#1e1b4b);
+                  display:flex;align-items:center;justify-content:center;
+                  font-size:3rem;font-weight:800;color:rgba(147,197,253,0.15);">
+        {{ p.display_name[0] | upper }}
+      </div>
+      {% endif %}
+      <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 35%,rgba(5,10,20,0.92) 100%);"></div>
+      <div style="position:absolute;bottom:0;left:0;right:0;padding:10px 12px;">
+        <div style="font-size:12px;font-weight:700;color:#fff;line-height:1.2;">{{ p.display_name }}</div>
+        {% if p.title %}<div style="font-size:10px;color:#fcd34d;margin-top:2px;">{{ p.title }}</div>{% endif %}
+      </div>
+    </a>
+    {% endfor %}
+    <a href="/players"
+       style="flex:1;min-width:120px;display:flex;flex-direction:column;align-items:center;
+              justify-content:center;gap:8px;text-decoration:none;color:#6b7280;
+              background:#0a1220;padding:16px;"
+       class="player-thumb-card">
+      <span style="font-size:1.5rem;opacity:0.4;">→</span>
+      <span style="font-size:11px;text-align:center;line-height:1.4;">See all<br>players</span>
+    </a>
+  </div>
+</div>
+{% endif %}
 
 <!-- ─── Insights (filled by JS) ──────────────────────────────────── -->
 <div id="dash-loading" class="text-center py-16 text-gray-700 text-sm select-none">
@@ -152,6 +200,9 @@
 
 {% block scripts %}
 <style>
+  .player-thumb-card img { transition: transform 0.3s ease; }
+  .player-thumb-card:hover img { transform: scale(1.04); }
+  .player-thumb-card:hover { opacity: 0.92; }
   .feature-card:hover {
     border-color: rgba(245,158,11,0.35) !important;
     box-shadow: 0 0 0 1px rgba(245,158,11,0.08), 0 4px 24px rgba(0,0,0,0.4);

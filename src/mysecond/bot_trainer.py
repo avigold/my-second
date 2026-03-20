@@ -20,14 +20,18 @@ duplicating data that is already cached.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
+import chess
 import requests
 
 from .cache import Cache
 from .eval_cache import EvalCache
 from .fetcher import _backend_key, fetch_player_games, fetch_player_games_chesscom
+from .game_phases import analyze_game_phases
 from .habits import analyze_habits
+from .strategise import _build_opening_lines, _compute_style_profile
 
 _LICHESS_USER_URL = "https://lichess.org/api/user/{username}"
 _CHESSCOM_STATS_URL = "https://api.chess.com/pub/player/{username}/stats"
@@ -52,6 +56,9 @@ def train_bot(
     out_path: Path,
     verbose: bool = True,
     eval_cache: EvalCache | None = None,
+    white_book_out: Path | None = None,
+    black_book_out: Path | None = None,
+    profile_out: Path | None = None,
 ) -> None:
     """Train a bot that mimics the given opponent.
 
@@ -194,12 +201,189 @@ def train_bot(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(model, indent=2), encoding="utf-8")
 
+    # ------------------------------------------------------------------
+    # Step 5 (optional): Export slim opening-book JSON files.
+    # ------------------------------------------------------------------
+    for color in colors:
+        book_out = white_book_out if color == "white" else black_book_out
+        if book_out is None:
+            continue
+        backend = _backend_key(opponent_username, color, speeds, platform=opponent_platform)
+        entries = cache.scan_backend(backend)
+        positions: dict = {}
+        for fen, payload in entries:
+            moves = [
+                {"uci": m["uci"], "games": m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)}
+                for m in payload.get("moves", [])
+                if m.get("white", 0) + m.get("draws", 0) + m.get("black", 0) >= 3
+            ]
+            if moves:
+                positions[fen] = moves
+        book_out.parent.mkdir(parents=True, exist_ok=True)
+        book_out.write_text(
+            json.dumps({"positions": positions}, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        if verbose:
+            print(f"{tag} Opening book ({color}) written to {book_out} "
+                  f"({len(positions)} positions)", flush=True)
+
     stage += 1
     _emit(stage * SCALE)
 
     if verbose:
         print(f"{tag} Bot model written to {out_path}", flush=True)
+
+    # ------------------------------------------------------------------
+    # Step 6 (optional): Export player profile JSON.
+    # ------------------------------------------------------------------
+    if profile_out is not None:
+        if verbose:
+            print(f"{tag} Computing player profile …", flush=True)
+
+        # Style profiles from opening cache.
+        style: dict = {}
+        start_norm = " ".join(chess.STARTING_FEN.split()[:3]) + " -"
+        for color in colors:
+            backend = _backend_key(opponent_username, color, speeds, platform=opponent_platform)
+            entries = cache.scan_backend(backend)
+            cache_index: dict = {fen: payload for fen, payload in entries}
+            profile_style = _compute_style_profile(cache_index, color)
+
+            # First-move distribution.
+            # White: read from the starting-position cache entry (White moves first).
+            # Black: aggregate Black's responses across all legal White first moves,
+            #        because the starting FEN (White to move) is absent from the
+            #        Black cache — that cache only stores positions where Black moves.
+            board0 = chess.Board()
+            first_move_dist: list[dict] = []
+            if color == "white":
+                start_payload = cache_index.get(start_norm, {})
+                root_moves = start_payload.get("moves", [])
+                total_root = sum(
+                    m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)
+                    for m in root_moves
+                ) or 1
+                for m in sorted(
+                    root_moves,
+                    key=lambda x: -(x.get("white", 0) + x.get("draws", 0) + x.get("black", 0)),
+                )[:5]:
+                    g = m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)
+                    try:
+                        san = board0.san(chess.Move.from_uci(m["uci"]))
+                    except Exception:
+                        san = m["uci"]
+                    first_move_dist.append({
+                        "uci": m["uci"],
+                        "san": san,
+                        "games": g,
+                        "pct": round(g / total_root, 3),
+                    })
+            else:
+                # For Black: enumerate all legal White first moves, find matching
+                # positions in the cache, and aggregate Black's responses.
+                response_totals: dict[str, dict] = {}
+                for white_move in board0.legal_moves:
+                    b1 = board0.copy()
+                    b1.push(white_move)
+                    nfen1 = " ".join(b1.fen().split()[:3]) + " -"
+                    payload1 = cache_index.get(nfen1, {})
+                    if not payload1:
+                        continue
+                    for m in payload1.get("moves", []):
+                        g = m.get("white", 0) + m.get("draws", 0) + m.get("black", 0)
+                        if g == 0:
+                            continue
+                        try:
+                            san = b1.san(chess.Move.from_uci(m["uci"]))
+                        except Exception:
+                            san = m["uci"]
+                        if san not in response_totals:
+                            response_totals[san] = {"uci": m["uci"], "san": san, "games": 0}
+                        response_totals[san]["games"] += g
+                sorted_responses = sorted(response_totals.values(), key=lambda x: -x["games"])[:5]
+                total_resp = sum(x["games"] for x in sorted_responses) or 1
+                for x in sorted_responses:
+                    first_move_dist.append({**x, "pct": round(x["games"] / total_resp, 3)})
+            profile_style["first_move_distribution"] = first_move_dist
+            profile_style["top_openings"] = _build_opening_lines(cache_index, color, top_n=10)
+            style[color] = profile_style
+
+        # Total games indexed (sum at starting position, both colors).
+        total_games = 0
+        for color in colors:
+            backend = _backend_key(opponent_username, color, speeds, platform=opponent_platform)
+            entries = cache.scan_backend(backend)
+            for fen, payload in entries:
+                if fen == start_norm:
+                    total_games += (
+                        payload.get("white", 0)
+                        + payload.get("draws", 0)
+                        + payload.get("black", 0)
+                    )
+                    break
+
+        # Game phase stats (downloads raw PGNs; use first color only to avoid double-counting).
+        phase_stats = analyze_game_phases(
+            username=opponent_username,
+            color=colors[0],
+            platform=opponent_platform,
+            speeds=speeds,
+            verbose=verbose,
+        )
+
+        # Top habits summary.
+        habits_summary: dict = {"white_count": 0, "black_count": 0, "top_white": [], "top_black": []}
+        for color in colors:
+            key = f"habits_{color}"
+            habits_list = habits_by_color.get(color, [])
+            count_key = f"{color}_count"
+            top_key = f"top_{color}"
+            habits_summary[count_key] = len(habits_list)
+            habits_summary[top_key] = habits_list[:3]
+
+        avatar_url = _fetch_avatar_url(opponent_username, opponent_platform or "lichess")
+
+        profile_data = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "total_games": total_games,
+            "phase_stats": phase_stats,
+            "habits": habits_summary,
+            "avatar_url": avatar_url,
+        }
+        for color in colors:
+            profile_data[f"style_{color}"] = style.get(color, {})
+
+        profile_out.parent.mkdir(parents=True, exist_ok=True)
+        profile_out.write_text(json.dumps(profile_data, indent=2), encoding="utf-8")
+        if verbose:
+            print(f"{tag} Player profile written to {profile_out}", flush=True)
+
+    if verbose:
         print(f"{tag} Done.", flush=True)
+
+
+def _fetch_avatar_url(username: str, platform: str) -> str | None:
+    """Fetch the player's avatar URL from their platform API."""
+    headers = {"User-Agent": "mysecond/0.1.0"}
+    try:
+        if platform in ("chesscom", "chess.com"):
+            resp = requests.get(
+                f"https://api.chess.com/pub/player/{username.lower()}",
+                headers=headers, timeout=5,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("avatar")
+        elif platform == "lichess":
+            resp = requests.get(
+                f"https://lichess.org/api/user/{username.lower()}",
+                headers=headers, timeout=5,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("profile", {}).get("imageUrl")
+    except Exception:
+        pass
+    return None
 
 
 def _fetch_elo(username: str, platform: str, speeds: str) -> int | None:

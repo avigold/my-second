@@ -102,7 +102,7 @@
 
     <div class="text-center mb-16">
       <h2 class="text-3xl font-bold text-white mb-3">Everything your game needs</h2>
-      <p class="text-gray-500 text-base">Five tools. One purpose.</p>
+      <p class="text-gray-500 text-base">Six tools. One purpose.</p>
     </div>
 
     <!-- 2 + 3 symmetric layout via a 6-column grid -->
@@ -110,7 +110,7 @@
 
       <div class="md:col-span-3 rounded-2xl border p-7 transition-all duration-200 lp-card"
            style="background:#0a1525;border-color:#1e2d45;">
-        <div class="text-4xl mb-5" style="opacity:0.65;">♞</div>
+        <div class="text-4xl mb-5" style="opacity:0.65;">♘</div>
         <h3 class="text-white font-semibold text-lg mb-3">Analyse Habits</h3>
         <p class="text-gray-500 text-sm leading-relaxed">
           Find the positions where you repeatedly choose the wrong move.
@@ -175,6 +175,65 @@
   </div>
 </section>
 
+
+<!-- ─── Featured Players ─────────────────────────────────────────────────── -->
+{% if featured_players %}
+<section style="background:#040c1a;border-top:1px solid #1a2540;">
+  <div class="max-w-6xl mx-auto px-6 py-20">
+    <div class="flex flex-col md:flex-row gap-12 md:items-center">
+
+      <div style="flex:0 0 auto;max-width:420px;">
+        <p class="text-amber-400 text-xs font-mono uppercase tracking-widest mb-4">No login required</p>
+        <h2 class="text-3xl font-bold text-white mb-4" style="line-height:1.15;">
+          Practice against the world's top players
+        </h2>
+        <p class="text-gray-400 text-base leading-relaxed mb-8" style="max-width:40ch;">
+          Opening bots trained on hundreds of real games. Step into Magnus Carlsen's preparation,
+          Hikaru's attacking lines, or any featured player's exact repertoire.
+        </p>
+        <a href="/players"
+           style="display:inline-flex;align-items:center;gap:0.5rem;
+                  background:#1d4ed8;color:#fff;font-weight:600;
+                  padding:0.75rem 1.5rem;border-radius:0.4rem;font-size:0.9rem;
+                  text-decoration:none;transition:background 0.15s;"
+           onmouseover="this.style.background='#2563eb'"
+           onmouseout="this.style.background='#1d4ed8'">
+          Browse players →
+        </a>
+      </div>
+
+      <div style="flex:1;display:flex;gap:12px;overflow:hidden;">
+        {% for p in featured_players %}
+        <a href="/players/{{ p.slug }}"
+           style="flex:1;min-width:0;position:relative;height:260px;border-radius:12px;
+                  overflow:hidden;text-decoration:none;border:1px solid #1f2937;flex-shrink:0;"
+           class="lp-player-card">
+          {% if p.photo_url or p.avatar_url %}
+          <img src="{{ p.photo_url or p.avatar_url }}" alt="{{ p.display_name }}"
+               style="width:100%;height:100%;object-fit:cover;
+                      object-position:center {{ p.photo_position if p.photo_position is not none else 25 }}%;
+                      display:block;transition:transform 0.4s ease;">
+          {% else %}
+          <div style="width:100%;height:100%;background:linear-gradient(160deg,#0d1f3c,#1e1b4b);
+                      display:flex;align-items:center;justify-content:center;
+                      font-size:4rem;font-weight:800;color:rgba(147,197,253,0.15);">
+            {{ p.display_name[0] | upper }}
+          </div>
+          {% endif %}
+          <div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 40%,rgba(4,12,26,0.9) 100%);"></div>
+          <div style="position:absolute;bottom:0;left:0;right:0;padding:12px 14px;">
+            <div style="font-size:13px;font-weight:700;color:#fff;">{{ p.display_name }}</div>
+            {% if p.title %}<div style="font-size:10px;color:#fcd34d;margin-top:2px;">{{ p.title }}</div>{% endif %}
+            {% if p.elo %}<div style="font-size:10px;color:rgba(209,213,219,0.5);margin-top:1px;">{{ p.elo }} Elo</div>{% endif %}
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+
+    </div>
+  </div>
+</section>
+{% endif %}
 
 <!-- ─── How it works ──────────────────────────────────────────────────────── -->
 <section style="background:#040c1a;border-top:1px solid #1a2540;border-bottom:1px solid #1a2540;">
@@ -258,6 +317,8 @@
 
 {% block scripts %}
 <style>
+  .lp-player-card img { transition: transform 0.4s ease; }
+  .lp-player-card:hover img { transform: scale(1.04); }
   .lp-card:hover {
     border-color: rgba(245,158,11,0.3) !important;
     box-shadow: 0 0 0 1px rgba(245,158,11,0.06), 0 8px 32px rgba(0,0,0,0.5);

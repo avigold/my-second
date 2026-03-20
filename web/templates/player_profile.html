@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en" style="overflow-x:hidden;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ player.display_name }}{% if player.title %} ({{ player.title }}){% endif %} Opening Repertoire & Bot | mysecond</title>
+  <meta name="description" content="Practice against {{ player.display_name }}'s real opening repertoire, built from their game history on {{ player.platform }}. Free — no login required.">
+  <link rel="canonical" href="https://mysecond.app/players/{{ player.slug }}">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+</head>
+<body style="margin:0; padding:0; background:#030712; color:#f3f4f6;">
+  {# SSR content for SEO crawlers — hidden visually but indexable. #}
+  <div style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap;">
+    <h1>{{ player.display_name }}{% if player.title %} ({{ player.title }}){% endif %}</h1>
+    {% if player.elo %}<p>{{ player.elo }} Elo · {{ player.platform }}</p>{% endif %}
+    {% if player.description %}<p>{{ player.description }}</p>{% endif %}
+  </div>
+
+  {# React mount #}
+  <div id="root"
+       data-mode="player-practice"
+       data-slug="{{ player.slug }}"
+       data-display-name="{{ player.display_name }}"
+       data-elo="{{ player.elo or '' }}"
+       data-title="{{ player.title or '' }}"
+       data-logged-in="{{ 'true' if logged_in else 'false' }}"
+       data-description="{{ player.description or '' }}"
+       data-username="{{ player.username }}"
+       data-platform="{{ player.platform }}"
+       data-photo-position="{{ player.photo_position if player.photo_position is not none else 25 }}">
+  </div>
+  {{ css_tag | safe }}
+  {{ js_tag  | safe }}
+</body>
+</html>

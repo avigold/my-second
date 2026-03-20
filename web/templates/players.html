@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}Chess Player Repertoires & Bots | mysecond{% endblock %}
+{% block meta_description %}Practice against the opening repertoires of top chess players — built from their real game history on Lichess and Chess.com. No login required.{% endblock %}
+
+{% block main_class %}max-w-none{% endblock %}
+{% block main_px %}px-0{% endblock %}
+{% block main_padding %}py-0{% endblock %}
+
+{% block content %}
+<style>
+  .player-card {
+    text-decoration: none;
+    display: flex;
+    flex-direction: column;
+    color: inherit;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid #1f2937;
+    background: #0d1117;
+    transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  }
+  .player-card:hover {
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(59,130,246,0.2);
+    border-color: rgba(59,130,246,0.35);
+  }
+
+  /* Photo wrapper: fixed height, full-bleed, gradient overlay at bottom */
+  .card-photo-wrap {
+    position: relative;
+    width: 100%;
+    height: 300px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .card-photo-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  /* Gradient: transparent → dark, bottom 55% of photo */
+  .card-photo-wrap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to bottom,
+      transparent 20%,
+      rgba(13,17,23,0.55) 55%,
+      rgba(13,17,23,0.92) 78%,
+      #0d1117 100%
+    );
+    pointer-events: none;
+  }
+  /* Name + meta sit inside the photo, pinned to the bottom */
+  .card-photo-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0 18px 16px;
+    z-index: 2;
+  }
+  /* Placeholder when no photo */
+  .card-photo-placeholder {
+    width: 100%;
+    height: 300px;
+    background: linear-gradient(160deg, #0d1f3c 0%, #1e1b4b 60%, #0a1628 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 80px;
+    font-weight: 800;
+    color: rgba(147,197,253,0.18);
+    letter-spacing: -4px;
+    flex-shrink: 0;
+  }
+
+  .card-body {
+    padding: 16px 18px 18px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+  .play-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(29,78,216,0.9);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(59,130,246,0.3);
+    transition: background 0.15s;
+    align-self: flex-start;
+    margin-top: auto;
+  }
+  .player-card:hover .play-btn {
+    background: #2563eb;
+  }
+</style>
+
+{# ── Hero ──────────────────────────────────────────────────────────────── #}
+<div style="background:linear-gradient(160deg,#0a1628 0%,#0d1f3c 30%,#080f20 65%,#030712 100%);
+            border-bottom:1px solid #1a2744; padding:52px 24px 44px;">
+  <div style="max-width:960px; margin:0 auto;">
+    <div style="font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase;
+                color:#3b82f6; margin-bottom:14px;">
+      Featured Players
+    </div>
+    <h1 style="font-size:clamp(26px,5vw,42px); font-weight:800; color:#fff;
+               letter-spacing:-0.8px; line-height:1.15; margin:0 0 16px;">
+      Play against the world's<br>top chess players
+    </h1>
+    <p style="font-size:15px; color:#6b7280; line-height:1.65; max-width:480px; margin:0;">
+      Opening bots trained on real game histories. Practice against their exact
+      repertoire — no login required.
+    </p>
+  </div>
+</div>
+
+{# ── Grid ──────────────────────────────────────────────────────────────── #}
+<div style="max-width:960px; margin:0 auto; padding:40px 24px 80px;">
+
+  {% if players %}
+  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:20px;">
+    {% for p in players %}
+    <a href="/players/{{ p.slug }}" class="player-card">
+
+      {# ── Full-bleed photo with overlay ── #}
+      {% if p.photo_url or p.avatar_url %}
+      <div class="card-photo-wrap">
+        <img src="{{ p.photo_url or p.avatar_url }}"
+             alt="{{ p.display_name }}"
+             style="object-position:center {{ p.photo_position if p.photo_position is not none else 25 }}%;">
+        <div class="card-photo-overlay">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+            <span style="font-size:18px; font-weight:800; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,0.6);">
+              {{ p.display_name }}
+            </span>
+            {% if p.title %}
+            <span style="font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px;
+                         background:rgba(245,158,11,0.25); color:#fcd34d;
+                         border:1px solid rgba(245,158,11,0.4); backdrop-filter:blur(4px);">
+              {{ p.title }}
+            </span>
+            {% endif %}
+          </div>
+          <div style="font-size:12px; color:rgba(209,213,219,0.7); display:flex; gap:5px; align-items:center;">
+            <span>{{ p.platform }}</span>
+            {% if p.elo %}
+            <span style="color:rgba(255,255,255,0.25);">·</span>
+            <span>{{ p.elo }} Elo</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {% else %}
+      {# Placeholder: large initial + name below #}
+      <div style="position:relative;">
+        <div class="card-photo-placeholder">{{ p.display_name[0] | upper }}</div>
+        <div style="position:absolute; bottom:0; left:0; right:0; padding:0 18px 16px;
+                    background:linear-gradient(to bottom,transparent,rgba(13,17,23,0.95));
+                    z-index:2;">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px;">
+            <span style="font-size:18px; font-weight:800; color:#fff;">{{ p.display_name }}</span>
+            {% if p.title %}
+            <span style="font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px;
+                         background:rgba(245,158,11,0.2); color:#fcd34d;
+                         border:1px solid rgba(245,158,11,0.35);">{{ p.title }}</span>
+            {% endif %}
+          </div>
+          <div style="font-size:12px; color:rgba(156,163,175,0.7); display:flex; gap:5px;">
+            <span>{{ p.platform }}</span>
+            {% if p.elo %}<span style="color:#374151;">·</span><span>{{ p.elo }} Elo</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {# ── Card body: description + CTA ── #}
+      <div class="card-body">
+        {% if p.description %}
+        <p style="font-size:13px; color:#6b7280; line-height:1.65; margin:0 0 16px; flex:1;
+                  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">
+          {{ p.description }}
+        </p>
+        {% else %}
+        <div style="flex:1; min-height:14px; margin-bottom:16px;"></div>
+        {% endif %}
+        <div class="play-btn">Practice &amp; explore →</div>
+      </div>
+
+    </a>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <div style="text-align:center; padding:80px 0; color:#4b5563;">
+    <p style="font-size:15px;">No featured players yet. Check back soon.</p>
+  </div>
+  {% endif %}
+
+  {# ── Sign-up CTA ── #}
+  {% if not logged_in %}
+  <div style="margin-top:64px; padding:40px 32px;
+              background:linear-gradient(135deg,#0a1628 0%,#0d1225 100%);
+              border:1px solid #1a2744; border-radius:16px; text-align:center;">
+    <p style="font-size:19px; font-weight:700; color:#f3f4f6; margin:0 0 8px; letter-spacing:-0.3px;">
+      Want to analyse your own games?
+    </p>
+    <p style="font-size:14px; color:#6b7280; margin:0 0 24px; line-height:1.6;
+              max-width:420px; margin-left:auto; margin-right:auto;">
+      Find novelties, detect habits, and build your opening repertoire — powered by engine analysis and AI.
+    </p>
+    <a href="/login"
+       style="display:inline-block; background:#1d4ed8; color:#fff; font-size:14px; font-weight:600;
+              padding:11px 28px; border-radius:8px; text-decoration:none;"
+       onmouseover="this.style.background='#2563eb'"
+       onmouseout="this.style.background='#1d4ed8'">
+      Sign up free →
+    </a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
