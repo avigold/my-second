@@ -1,0 +1,11 @@
+.lp-card:hover {
+  border-color: rgba(245,158,11,0.3) !important;
+  box-shadow: 0 0 0 1px rgba(245,158,11,0.06), 0 8px 32px rgba(0,0,0,0.5);
+  transform: translateY(-2px);
+}
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.4; }
+  50%       { transform: translateY(6px); opacity: 0.8; }
+}
+.lp-player-card img { transition: transform 0.4s ease; }
+.lp-player-card:hover img { transform: scale(1.04); }

@@ -291,18 +291,24 @@ def _build_path_map(
     if not cache_index:
         return {}
 
+    def _nfen(b: chess.Board) -> str:
+        """Normalized FEN matching cache_index keys (3 fields + '-')."""
+        f = b.fen().split()
+        return f"{f[0]} {f[1]} {f[2]} -"
+
     player_chess = chess.WHITE if color == "white" else chess.BLACK
     start_board  = chess.Board()
-    start_fen    = start_board.fen()
+    start_nfen   = _nfen(start_board)
 
-    if player_chess == chess.WHITE and start_fen not in cache_index:
+    if player_chess == chess.WHITE and start_nfen not in cache_index:
         return {}
 
-    # path_sans[fen] = list of SAN strings leading to that FEN from the start
+    # path_sans[norm_fen] = list of SAN strings leading to that position
     path_sans: dict[str, list[str]] = {}
 
+    # visited tracks full FENs (unique board states including clocks) to avoid cycles
     queue:   deque[tuple[chess.Board, list[str]]] = deque([(start_board.copy(), [])])
-    visited: set[str] = {start_fen}
+    visited: set[str] = {start_board.fen()}
 
     while queue and len(visited) < max_nodes:
         board, sans = queue.popleft()
@@ -310,15 +316,15 @@ def _build_path_map(
         if len(sans) >= max_depth:
             continue
 
-        fen = board.fen()
+        nfen = _nfen(board)
 
         if board.turn == player_chess:
-            payload = cache_index.get(fen)
+            payload = cache_index.get(nfen)
             if payload is None:
                 continue
 
             if sans:
-                path_sans[fen] = sans[:]
+                path_sans[nfen] = sans[:]
 
             top_moves = sorted(
                 payload.get("moves", []),
@@ -334,14 +340,13 @@ def _build_path_map(
                     san      = board.san(move)
                     after    = board.copy()
                     after.push(move)
-                    next_fen = after.fen()
                 except Exception:
                     continue
 
-                if next_fen not in visited:
+                if after.fen() not in visited:
                     new_sans = sans + [san]
-                    visited.add(next_fen)
-                    path_sans[next_fen] = new_sans   # also record after-player-move FEN
+                    visited.add(after.fen())
+                    path_sans[_nfen(after)] = new_sans   # also record after-player-move FEN
                     queue.append((after, new_sans))
 
         else:
@@ -350,17 +355,16 @@ def _build_path_map(
                     opp_san  = board.san(opp_move)
                     after    = board.copy()
                     after.push(opp_move)
-                    next_fen = after.fen()
                 except Exception:
                     continue
 
-                if next_fen not in visited and next_fen in cache_index:
+                if after.fen() not in visited and _nfen(after) in cache_index:
                     new_sans = sans + [opp_san]
-                    visited.add(next_fen)
-                    path_sans[next_fen] = new_sans
+                    visited.add(after.fen())
+                    path_sans[_nfen(after)] = new_sans
                     queue.append((after, new_sans))
 
-    return {fen: _to_pgn(s) for fen, s in path_sans.items() if s}
+    return {nfen: _to_pgn(s) for nfen, s in path_sans.items() if s}
 
 
 def _build_opening_lines(

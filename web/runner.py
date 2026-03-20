@@ -264,3 +264,18 @@ def build_train_bot_argv(params: dict, out_path: str) -> list[str]:
     if params.get("color"):
         cmd += ["--color", params["color"]]
     return cmd
+
+
+def build_featured_player_argv(
+    params: dict,
+    out_path: str,
+    white_book_path: str,
+    black_book_path: str,
+    profile_path: str,
+) -> list[str]:
+    """Build the argv list for training a featured player (train-bot + book + profile export)."""
+    cmd = build_train_bot_argv(params, out_path)
+    cmd += ["--export-white-book", white_book_path]
+    cmd += ["--export-black-book", black_book_path]
+    cmd += ["--export-profile", profile_path]
+    return cmd

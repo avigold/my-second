@@ -148,6 +148,196 @@ async function loadJobs() {
   }
 }
 
+// ─── Featured Players ────────────────────────────────────────────────
+let _players = [];
+
+async function loadPlayers() {
+  try {
+    const r = await fetch('/api/admin/players');
+    if (!r.ok) throw new Error(r.status);
+    const players = await r.json();
+    _players = players;
+    const tbody = document.getElementById('players-tbody');
+    if (!players.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-600 text-xs">No featured players yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = players.map(p => {
+      const statusCls = p.status === 'ready' ? 'badge-done' : p.status === 'failed' ? 'badge-failed' : 'badge-queued';
+      return `
+        <tr class="admin-table-row">
+          <td class="px-4 py-3 font-mono text-xs text-gray-300">
+            <a href="/players/${escHtml(p.slug)}" class="hover:text-blue-400">${escHtml(p.slug)}</a>
+          </td>
+          <td class="px-4 py-3 text-sm text-gray-200">${escHtml(p.display_name)}
+            ${p.title ? `<span class="badge badge-titled ml-1">${escHtml(p.title)}</span>` : ''}
+          </td>
+          <td class="px-4 py-3 text-xs text-gray-500">${escHtml(p.platform)}</td>
+          <td class="px-4 py-3 text-xs text-gray-400">${p.elo || '—'}</td>
+          <td class="px-4 py-3"><span class="badge ${statusCls}">${escHtml(p.status)}</span></td>
+          <td class="px-4 py-3 flex gap-2">
+            <button onclick="editPlayer('${escHtml(p.slug)}')"
+                    class="text-xs bg-blue-900 hover:bg-blue-800 text-blue-300 px-2 py-1 rounded transition-colors">
+              Edit
+            </button>
+            <button onclick="retrainPlayer('${escHtml(p.slug)}')"
+                    class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded transition-colors">
+              Re-train
+            </button>
+            <button onclick="deletePlayer('${escHtml(p.slug)}')"
+                    class="text-xs bg-red-900 hover:bg-red-800 text-red-300 px-2 py-1 rounded transition-colors">
+              Delete
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch(e) {
+    document.getElementById('players-tbody').innerHTML =
+      `<tr><td colspan="6" class="px-4 py-4 text-red-400 text-xs px-4">Error: ${e}</td></tr>`;
+  }
+}
+
+function editPlayer(slug) {
+  const p = _players.find(x => x.slug === slug);
+  if (!p) return;
+  document.getElementById('edit-slug').value          = slug;
+  document.getElementById('edit-display-name').value  = p.display_name || '';
+  document.getElementById('edit-title').value         = p.title || '';
+  document.getElementById('edit-description').value   = p.description || '';
+  document.getElementById('edit-msg').textContent     = '';
+  document.getElementById('edit-photo-msg').textContent = '';
+  document.getElementById('edit-photo-file').value    = '';
+  const pos = p.photo_position != null ? p.photo_position : 25;
+  document.getElementById('edit-photo-position').value = pos;
+  document.getElementById('edit-photo-position-val').textContent = pos + '%';
+  const preview = document.getElementById('edit-photo-preview');
+  const img = document.getElementById('edit-photo-img');
+  if (p.photo_url) {
+    img.src = p.photo_url + '?t=' + Date.now();
+    preview.classList.remove('hidden');
+  } else {
+    preview.classList.add('hidden');
+  }
+  document.getElementById('edit-modal').classList.remove('hidden');
+}
+
+function closeEditModal() {
+  document.getElementById('edit-modal').classList.add('hidden');
+}
+
+async function uploadPhoto() {
+  const slug = document.getElementById('edit-slug').value;
+  const fileInput = document.getElementById('edit-photo-file');
+  const file = fileInput.files[0];
+  const msg = document.getElementById('edit-photo-msg');
+  if (!file) { msg.style.color = '#f87171'; msg.textContent = 'Select a file first.'; return; }
+  const formData = new FormData();
+  formData.append('photo', file);
+  msg.style.color = '#9ca3af';
+  msg.textContent = 'Uploading…';
+  try {
+    const r = await fetch(`/api/admin/players/${slug}/photo`, { method: 'POST', body: formData });
+    const d = await r.json();
+    if (!r.ok) {
+      msg.style.color = '#f87171';
+      msg.textContent = `Error: ${d.error || r.status}`;
+    } else {
+      msg.style.color = '#4ade80';
+      msg.textContent = 'Uploaded!';
+      const img = document.getElementById('edit-photo-img');
+      img.src = d.photo_url + '?t=' + Date.now();
+      document.getElementById('edit-photo-preview').classList.remove('hidden');
+      const p = _players.find(x => x.slug === slug);
+      if (p) p.photo_url = d.photo_url;
+    }
+  } catch(e) {
+    msg.style.color = '#f87171';
+    msg.textContent = `Network error: ${e}`;
+  }
+}
+
+async function savePlayerEdit() {
+  const slug = document.getElementById('edit-slug').value;
+  const data = {
+    display_name:   document.getElementById('edit-display-name').value.trim(),
+    title:          document.getElementById('edit-title').value.trim(),
+    description:    document.getElementById('edit-description').value.trim(),
+    photo_position: parseInt(document.getElementById('edit-photo-position').value),
+  };
+  const msg = document.getElementById('edit-msg');
+  msg.style.color = '#9ca3af';
+  msg.textContent = 'Saving…';
+  try {
+    const r = await fetch(`/api/admin/players/${slug}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      msg.style.color = '#f87171';
+      msg.textContent = `Error: ${d.error || r.status}`;
+    } else {
+      msg.style.color = '#4ade80';
+      msg.textContent = 'Saved.';
+      setTimeout(() => { closeEditModal(); loadPlayers(); }, 700);
+    }
+  } catch(e) {
+    msg.style.color = '#f87171';
+    msg.textContent = `Network error: ${e}`;
+  }
+}
+
+async function addPlayer(e) {
+  e.preventDefault();
+  const form = e.target;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const msg = document.getElementById('add-player-msg');
+  msg.textContent = 'Submitting…';
+  msg.style.color = '#9ca3af';
+  try {
+    const r = await fetch('/api/admin/players', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      msg.textContent = `Error: ${d.error || r.status}`;
+      msg.style.color = '#f87171';
+    } else {
+      msg.innerHTML = `Training job started — <a href="/jobs/${d.job_id}" class="underline hover:text-green-300">${d.job_id?.slice(0,8)}</a>`;
+      msg.style.color = '#4ade80';
+      form.reset();
+      setTimeout(() => { loadPlayers(); loadJobs(); }, 1000);
+    }
+  } catch(err) {
+    msg.textContent = `Network error: ${err}`;
+    msg.style.color = '#f87171';
+  }
+}
+
+async function retrainPlayer(slug) {
+  if (!confirm(`Re-train ${slug}?`)) return;
+  try {
+    const r = await fetch(`/api/admin/players/${slug}/retrain`, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) { alert(`Error: ${d.error || r.status}`); return; }
+    alert(`Re-training started (${d.job_id?.slice(0,8)})`);
+    loadPlayers();
+  } catch(e) { alert(`Network error: ${e}`); }
+}
+
+async function deletePlayer(slug) {
+  if (!confirm(`Delete featured player "${slug}" and their book files?`)) return;
+  try {
+    const r = await fetch(`/api/admin/players/${slug}`, { method: 'DELETE' });
+    if (!r.ok) { const d = await r.json(); alert(`Error: ${d.error || r.status}`); return; }
+    loadPlayers();
+  } catch(e) { alert(`Network error: ${e}`); }
+}
+
 // ─── Backups ──────────────────────────────────────────────────────────
 function toggleBackupForm() {
   const f = document.getElementById('backup-form');
@@ -271,4 +461,5 @@ async function deleteBackup(id) {
 // ─── Init ─────────────────────────────────────────────────────────────
 loadStats();
 loadUsers().then(() => loadJobs());
+loadPlayers();
 loadBackups();

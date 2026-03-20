@@ -42,6 +42,12 @@ DO $$ BEGIN
   ) THEN
     ALTER TABLE users ADD COLUMN google_id TEXT UNIQUE;
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='users' AND column_name='email'
+  ) THEN
+    ALTER TABLE users ADD COLUMN email TEXT;
+  END IF;
 END $$;
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -78,6 +84,59 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     current_period_end     TIMESTAMPTZ,
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS bots (
+    id                 TEXT PRIMARY KEY,
+    user_id            UUID REFERENCES users(id) ON DELETE CASCADE,
+    opponent_username  TEXT NOT NULL,
+    opponent_platform  TEXT NOT NULL DEFAULT 'lichess',
+    speeds             TEXT NOT NULL DEFAULT 'blitz,rapid,classical',
+    opponent_elo       INTEGER,
+    job_id             TEXT,
+    status             TEXT NOT NULL DEFAULT 'training',
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS featured_players (
+    slug             TEXT PRIMARY KEY,
+    display_name     TEXT NOT NULL,
+    platform         TEXT NOT NULL,
+    username         TEXT NOT NULL,
+    title            TEXT,
+    description      TEXT,
+    speeds           TEXT NOT NULL DEFAULT 'blitz,rapid',
+    elo              INTEGER,
+    white_book_path  TEXT,
+    black_book_path  TEXT,
+    bot_model_path   TEXT,
+    profile_json_path TEXT,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='featured_players' AND column_name='profile_json_path'
+  ) THEN
+    ALTER TABLE featured_players ADD COLUMN profile_json_path TEXT;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='featured_players' AND column_name='photo_url'
+  ) THEN
+    ALTER TABLE featured_players ADD COLUMN photo_url TEXT;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='featured_players' AND column_name='photo_position'
+  ) THEN
+    ALTER TABLE featured_players ADD COLUMN photo_position INTEGER DEFAULT 25;
+  END IF;
+END $$;
 """
 
 
