@@ -7,6 +7,7 @@ import RepertoireApp from './RepertoireApp.jsx'
 import StrategiseApp from './StrategiseApp.jsx'
 import GameAnalysisApp from './GameAnalysisApp.jsx'
 import BotPracticeApp from './BotPracticeApp.jsx'
+import PlayerProfileApp from './PlayerProfileApp.jsx'
 import './chessground.base.css'
 import './chessground.brown.css'
 import './chessground.cburnett.css'
@@ -26,6 +27,17 @@ const apps = {
   'strategise':      <StrategiseApp      jobId={jobId} side={side} />,
   'game-analysis':   <GameAnalysisApp    jobId={jobId} side={side} />,
   'bot-practice':    <BotPracticeApp     botId={botId} />,
+  'player-practice': <PlayerProfileApp
+    slug={rootEl.dataset.slug}
+    displayName={rootEl.dataset.displayName}
+    elo={rootEl.dataset.elo ? parseInt(rootEl.dataset.elo) : null}
+    title={rootEl.dataset.title || null}
+    loggedIn={rootEl.dataset.loggedIn || 'false'}
+    description={rootEl.dataset.description || ''}
+    username={rootEl.dataset.username || ''}
+    platform={rootEl.dataset.platform || ''}
+    photoPosition={rootEl.dataset.photoPosition ? parseInt(rootEl.dataset.photoPosition) : 25}
+  />,
 }
 
 createRoot(rootEl).render(apps[mode] ?? apps['novelties'])

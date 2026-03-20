@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import signal
+import threading
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -24,6 +26,19 @@ from flask import (
     stream_with_context,
 )
 
+# ---------------------------------------------------------------------------
+# Load .env before importing local modules so env vars are available at their
+# module-level import time (e.g. GOOGLE_CLIENT_ID in auth.py).
+# ---------------------------------------------------------------------------
+_env_file = Path(__file__).resolve().parent.parent / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            _k = _k.strip()
+            os.environ[_k.strip()] = _v.strip()
+
 from auth import (
     chesscom_auth_url,
     chesscom_enabled,
@@ -41,12 +56,13 @@ from auth import (
 
 import backup as backup_module
 from bots import BotManager
+from featured_players import FeaturedPlayerManager
 from habits_parser import parse_habits
 from jobs import Job, JobRegistry
 import maia_engine
 from pgn_parser import parse_novelties
 from repertoire_parser import parse_repertoire
-from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, build_strategise_argv, build_train_bot_argv, launch_job, make_launch_fn
+from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, build_strategise_argv, build_train_bot_argv, build_featured_player_argv, launch_job, make_launch_fn
 from jobs import JobQueue
 
 # ---------------------------------------------------------------------------
@@ -57,16 +73,6 @@ from jobs import JobQueue
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
 
-# Auto-load .env so ANTHROPIC_API_KEY etc. are available without a manual export.
-_env_file = REPO_ROOT / ".env"
-if _env_file.exists():
-    for _line in _env_file.read_text().splitlines():
-        _line = _line.strip()
-        if _line and not _line.startswith("#") and "=" in _line:
-            _k, _v = _line.split("=", 1)
-            _k = _k.strip()
-            if _k not in os.environ:          # don't override values already in env
-                os.environ[_k] = _v.strip()
 OUTPUT_DIR = DATA_DIR / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR = DATA_DIR / "uploads"
@@ -75,9 +81,33 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(24)
 
+# ---------------------------------------------------------------------------
+# Wikipedia photo helper
+# ---------------------------------------------------------------------------
+def _fetch_wiki_photo(display_name: str) -> str | None:
+    """Fetch a high-quality press photo from Wikipedia for the given name.
+
+    Uses the REST summary endpoint, then upscales the thumbnail URL to 600 px
+    wide so we get a crisp image without pulling the full original.
+    Returns the photo URL, or None if not found.
+    """
+    name_encoded = display_name.replace(" ", "_")
+    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{name_encoded}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "mysecond/0.1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+        thumb = data.get("thumbnail", {}).get("source")
+        if thumb:
+            # Replace whatever size prefix Wikipedia gave us with 1200px
+            return re.sub(r"/\d+px-", "/1200px-", thumb)
+    except Exception:
+        pass
+    return None
+
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://mysecond:mysecond@localhost:5433/mysecond",
+    "postgresql://mysecond:mysecond@localhost:5432/mysecond",
 )
 # Ensure DB connection attempts fail fast rather than hanging indefinitely.
 if "connect_timeout" not in DATABASE_URL:
@@ -86,6 +116,10 @@ if "connect_timeout" not in DATABASE_URL:
 registry = JobRegistry(DATABASE_URL)
 job_queue = JobQueue()
 bot_manager = BotManager(DATABASE_URL)
+featured_player_manager = FeaturedPlayerManager(DATABASE_URL)
+
+PLAYERS_DIR = DATA_DIR / "players"
+PLAYERS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Opening-book cache for bot move lookup (same SQLite file as the CLI uses).
 from mysecond.cache import Cache as _OpeningCache
@@ -97,10 +131,12 @@ DIST_DIR = REPO_ROOT / "web" / "static" / "dist"
 # Auth gate
 # ---------------------------------------------------------------------------
 
-_AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout", "/pricing", "/healthz", "/sitemap.xml"}
+_AUTH_EXEMPT_PATHS = {"/", "/login", "/auth/logout", "/pricing", "/healthz", "/sitemap.xml", "/players"}
 _AUTH_EXEMPT_PREFIXES = (
     "/auth/lichess", "/auth/chesscom", "/auth/google", "/static/",
     "/api/stripe/webhook",   # called by Stripe servers, no user session
+    "/players/",
+    "/api/players/",
 )
 
 
@@ -137,12 +173,21 @@ def healthz():
 
 @app.get("/sitemap.xml")
 def sitemap():
-    xml = """<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://mysecond.app/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
-  <url><loc>https://mysecond.app/pricing</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
-</urlset>"""
-    return Response(xml, mimetype="application/xml")
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+        '  <url><loc>https://mysecond.app/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>',
+        '  <url><loc>https://mysecond.app/pricing</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>',
+        '  <url><loc>https://mysecond.app/players</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>',
+    ]
+    for p in featured_player_manager.list_all():
+        if p["status"] == "ready":
+            lines.append(
+                f'  <url><loc>https://mysecond.app/players/{p["slug"]}</loc>'
+                f'<changefreq>monthly</changefreq><priority>0.8</priority></url>'
+            )
+    lines.append('</urlset>')
+    return Response("\n".join(lines), mimetype="application/xml")
 
 
 @app.get("/login")
@@ -232,9 +277,10 @@ def _vite_tags() -> tuple[str, str]:
 
 @app.get("/")
 def index():
+    players = _get_featured_players(limit=4)
     if get_current_user():
-        return render_template("dashboard.html")
-    return render_template("landing.html")
+        return render_template("dashboard.html", featured_players=players)
+    return render_template("landing.html", featured_players=players)
 
 
 @app.get("/jobs")
@@ -794,6 +840,227 @@ def game_analysis_page(job_id: str):
 @app.get("/pricing")
 def pricing_page():
     return render_template("pricing.html")
+
+
+# ---------------------------------------------------------------------------
+def _get_featured_players(limit=None):
+    """Return enriched featured player dicts (status=ready). Used by landing + dashboard."""
+    players_raw = [p for p in featured_player_manager.list_all() if p["status"] == "ready"]
+    if limit:
+        players_raw = players_raw[:limit]
+    players = []
+    for p in players_raw:
+        pdata = dict(p)
+        pdata["avatar_url"] = None
+        if not pdata.get("photo_url"):
+            profile_path = pdata.get("profile_json_path")
+            if profile_path:
+                try:
+                    profile_file = Path(profile_path)
+                    profile_data = json.loads(profile_file.read_text())
+                    pdata["avatar_url"] = profile_data.get("avatar_url")
+                    cached = profile_data.get("photo_url")
+                    if cached:
+                        pdata["photo_url"] = cached
+                    else:
+                        wiki = _fetch_wiki_photo(pdata["display_name"])
+                        if wiki:
+                            pdata["photo_url"] = wiki
+                            profile_data["photo_url"] = wiki
+                            profile_file.write_text(json.dumps(profile_data, indent=2))
+                except Exception:
+                    pass
+        players.append(pdata)
+    return players
+
+
+# Public featured-player routes (no auth required)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/players")
+def players_page():
+    players = _get_featured_players()
+    return render_template("players.html", players=players, logged_in=bool(get_current_user()))
+
+
+@app.get("/players/<slug>")
+def player_profile_page(slug: str):
+    player = featured_player_manager.get(slug)
+    if player is None or player["status"] != "ready":
+        return "Player not found", 404
+    css_tag, js_tag = _vite_tags()
+    return render_template(
+        "player_profile.html",
+        player=player,
+        logged_in=bool(get_current_user()),
+        css_tag=css_tag,
+        js_tag=js_tag,
+    )
+
+
+@app.get("/api/players")
+def api_players_list():
+    players = [p for p in featured_player_manager.list_all() if p["status"] == "ready"]
+    return jsonify(players)
+
+
+@app.get("/api/players/<slug>/book/<color>")
+def api_player_book(slug: str, color: str):
+    if color not in ("white", "black"):
+        return jsonify({"error": "color must be white or black"}), 400
+    player = featured_player_manager.get(slug)
+    if player is None or player["status"] != "ready":
+        return jsonify({"error": "player not found"}), 404
+    book_path = player.get(f"{color}_book_path")
+    if not book_path or not Path(book_path).exists():
+        return jsonify({"positions": {}})
+    return send_file(book_path, mimetype="application/json")
+
+
+@app.get("/api/players/<slug>/repertoire/<color>")
+def api_player_repertoire(slug: str, color: str):
+    """Convert a player's opening book into a navigable repertoire tree."""
+    if color not in ("white", "black"):
+        return jsonify({"error": "color must be white or black"}), 400
+    player = featured_player_manager.get(slug)
+    if player is None or player["status"] != "ready":
+        return jsonify({"error": "player not found"}), 404
+    book_path = player.get(f"{color}_book_path")
+    if not book_path or not Path(book_path).exists():
+        return jsonify({"error": "book not found"}), 404
+
+    with open(book_path, encoding="utf-8") as f:
+        book = json.load(f)
+    positions = book.get("positions", {})
+
+    import chess as _chess
+    from collections import deque as _deque
+
+    player_color = _chess.WHITE if color == "white" else _chess.BLACK
+
+    def _nfen(b):
+        p = b.fen().split()
+        return f"{p[0]} {p[1]} {p[2]} -"
+
+    # BFS build tree
+    PLAYER_MAX  = 4   # top N player moves to expand
+    OPP_MAX     = 3   # top N opponent moves to expand
+    MAX_NODES   = 600
+    MAX_DEPTH   = 16
+
+    start_board = _chess.Board()
+    root_nfen   = _nfen(start_board)
+
+    root_node = {
+        "id": "0", "parent_id": None,
+        "fen": start_board.fen(),
+        "move_san": None, "move_uci": None, "move_orig": None, "move_dest": None,
+        "comment": "", "freq": None,
+        "depth": 0, "is_player_move": False,
+        "children": [],
+    }
+
+    bfs_queue = _deque([(start_board.copy(), root_node, 0)])
+    total_nodes = 1
+
+    while bfs_queue and total_nodes < MAX_NODES:
+        board, parent_node, depth = bfs_queue.popleft()
+        if depth >= MAX_DEPTH:
+            continue
+
+        nfen           = _nfen(board)
+        is_player_turn = board.turn == player_color
+        book_moves     = positions.get(nfen, [])
+
+        if book_moves:
+            # Use top-N moves from the book.
+            top_n     = PLAYER_MAX if is_player_turn else OPP_MAX
+            top_moves = [{"uci": m["uci"], "games": m.get("games", 0)}
+                         for m in sorted(book_moves, key=lambda m: -m.get("games", 0))[:top_n]]
+        elif not is_player_turn:
+            # Opponent's turn and position not in book (e.g. starting FEN for
+            # Black's repertoire).  Probe all legal moves and keep those whose
+            # resulting position IS in the book, sorted by book game count.
+            candidates = []
+            for opp_move in board.legal_moves:
+                b2 = board.copy()
+                b2.push(opp_move)
+                sub = positions.get(_nfen(b2), [])
+                if sub:
+                    total = sum(s.get("games", 0) for s in sub)
+                    candidates.append({"uci": opp_move.uci(), "games": total})
+            top_moves = sorted(candidates, key=lambda m: -m["games"])[:OPP_MAX]
+        else:
+            continue  # player's turn but no book data — dead end
+
+        for i, m in enumerate(top_moves):
+            uci = m.get("uci", "")
+            if not uci:
+                continue
+            try:
+                move  = _chess.Move.from_uci(uci)
+                san   = board.san(move)
+                after = board.copy()
+                after.push(move)
+            except Exception:
+                continue
+
+            games    = m.get("games", 0)
+            child_id = f"{parent_node['id']}.{i}"
+            child_node = {
+                "id": child_id, "parent_id": parent_node["id"],
+                "fen": after.fen(),
+                "move_san": san, "move_uci": uci,
+                "move_orig": uci[:2], "move_dest": uci[2:4],
+                "comment": f"{games:,} games" if games else "",
+                "freq": {"games": games, "total": games, "pct": 100,
+                         "wins": None, "draws": None, "losses": None} if is_player_turn else None,
+                "depth": depth + 1,
+                "is_player_move": is_player_turn,
+                "children": [],
+            }
+            parent_node["children"].append(child_node)
+            total_nodes += 1
+            bfs_queue.append((after, child_node, depth + 1))
+
+    return jsonify({"root": root_node, "color": color, "tree_stats": {
+        "total_positions": total_nodes,
+        "player_moves": 0, "opponent_moves": 0,
+        "leaf_count": 0, "max_depth": MAX_DEPTH,
+        "quality_by_depth": {},
+    }})
+
+
+@app.post("/api/players/<slug>/engine-move")
+def api_player_engine_move(slug: str):
+    """Return Maia's move for the given FEN (out-of-book positions)."""
+    player = featured_player_manager.get(slug)
+    if player is None or player["status"] != "ready":
+        return jsonify({"error": "player not found"}), 404
+    data = request.get_json(force=True)
+    fen = (data.get("fen") or "").strip()
+    if not fen:
+        return jsonify({"error": "fen is required"}), 400
+    try:
+        elo = player.get("elo") or 1500
+        uci = maia_engine.get_move(fen, elo)
+        if uci is None:
+            return jsonify({"error": "engine returned no move"}), 500
+        return jsonify({"uci": uci, "source": "engine"})
+    except Exception as exc:
+        return jsonify({"error": f"Engine error: {exc}"}), 500
+
+
+@app.get("/api/players/<slug>/profile")
+def api_player_profile(slug: str):
+    player = featured_player_manager.get(slug)
+    if player is None or player["status"] != "ready":
+        return jsonify({"error": "player not found"}), 404
+    profile_path = player.get("profile_json_path")
+    if not profile_path or not Path(profile_path).exists():
+        return jsonify({"error": "profile not yet generated"}), 404
+    return send_file(profile_path, mimetype="application/json")
 
 
 @app.get("/account")
@@ -1517,6 +1784,265 @@ def api_admin_set_role(user_id: str):
     if not found:
         return jsonify({"error": "User not found"}), 404
     return jsonify({"status": "ok", "role": role})
+
+
+# ---------------------------------------------------------------------------
+# Admin: featured players CRUD
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/admin/players")
+def api_admin_players_list():
+    _require_admin()
+    return jsonify(featured_player_manager.list_all())
+
+
+def _generate_player_description(slug: str, display_name: str, title: str | None, profile_path: str) -> None:
+    """Generate an AI description for a featured player and store it in the DB."""
+    try:
+        import anthropic as _anthropic
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return
+        with open(profile_path, encoding="utf-8") as f:
+            profile = json.load(f)
+
+        sw = profile.get("style_white", {})
+        sb = profile.get("style_black", {})
+        ph = profile.get("phase_stats", {})
+
+        top_white = [o["move_sequence"] for o in sw.get("top_openings", [])[:3]]
+        top_black = [o["move_sequence"] for o in sb.get("top_openings", [])[:3]]
+        title_str = f"{title} " if title else ""
+
+        first_w = sw.get("first_move_distribution", [])
+        first_b = sb.get("first_move_distribution", [])
+        fm_w = f"1.{first_w[0]['san']} ({first_w[0]['pct']*100:.0f}%)" if first_w else "varied"
+        fm_b = f"1...{first_b[0]['san']} ({first_b[0]['pct']*100:.0f}%)" if first_b else "varied"
+        end_conv = ph.get("endgame_conversion_rate")
+        end_str = f"{end_conv:.0%}" if end_conv is not None else "unknown"
+
+        prompt = (
+            f"Write a compelling 3-4 sentence profile of chess player {title_str}{display_name} "
+            f"for a chess enthusiast audience. Cover their signature openings, overall style, "
+            f"and any standout statistical traits. Be specific and vivid — mention actual move names. "
+            f"Do not use vague language like 'dynamic' or 'solid' without backing it with data.\n\n"
+            f"Data:\n"
+            f"- {profile.get('total_games', 0):,} games indexed\n"
+            f"- As White: {sw.get('avg_win_rate', 0):.0%} win rate, {sw.get('draw_rate', 0):.0%} draws, "
+            f"most common first move {fm_w}\n"
+            f"- Top White openings: {', '.join(top_white) or 'varied'}\n"
+            f"- As Black: {sb.get('avg_win_rate', 0):.0%} win rate, most common first response {fm_b}\n"
+            f"- Top Black openings: {', '.join(top_black) or 'varied'}\n"
+            f"- Endgame conversion: {end_str} when reaching endgame "
+            f"(endgame reach {ph.get('endgame_reach_rate', 0):.0%})\n\n"
+            f"Write only the description text, no headers or preamble."
+        )
+
+        client = _anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        description = msg.content[0].text.strip()
+        if description:
+            featured_player_manager.set_description(slug, description)
+    except Exception:
+        pass  # Description generation is best-effort
+
+
+@app.post("/api/admin/players")
+def api_admin_players_create():
+    _require_admin()
+    data = request.get_json(force=True)
+    slug         = (data.get("slug") or "").strip().lower()
+    display_name = (data.get("display_name") or "").strip()
+    platform     = (data.get("platform") or "lichess").strip()
+    username     = (data.get("username") or "").strip()
+    title        = (data.get("title") or "").strip() or None
+    speeds       = (data.get("speeds") or "blitz,rapid").strip()
+    description  = (data.get("description") or "").strip() or None
+    photo_url    = (data.get("photo_url") or "").strip() or None
+
+    if not slug or not display_name or not username:
+        return jsonify({"error": "slug, display_name, and username are required"}), 400
+
+    if not re.match(r'^[a-z0-9-]+$', slug):
+        return jsonify({"error": "slug must be lowercase alphanumeric with hyphens only"}), 400
+
+    if featured_player_manager.get(slug):
+        return jsonify({"error": f"Slug '{slug}' already exists"}), 409
+
+    featured_player_manager.create(slug, display_name, platform, username, title, speeds, description, photo_url)
+
+    job_params = {
+        "opponent_username": username,
+        "platform": platform,
+        "speeds": speeds,
+        "color": "both",
+    }
+    job = registry.create("train-bot", {**job_params, "featured_slug": slug}, user_id=None)
+    out_path        = str(OUTPUT_DIR / f"{job.id}.json")
+    white_book_path = str(PLAYERS_DIR / f"{slug}-white.json")
+    black_book_path = str(PLAYERS_DIR / f"{slug}-black.json")
+    profile_path    = str(PLAYERS_DIR / f"{slug}-profile.json")
+    job.out_path = out_path
+    registry.set_out_path(job.id, out_path)
+
+    def _on_complete(status: str, exit_code: int) -> None:
+        if status == "done":
+            elo = None
+            try:
+                with open(out_path, encoding="utf-8") as f:
+                    model = json.load(f)
+                elo = model.get("opponent_elo")
+            except Exception:
+                pass
+            profile_path_exists = Path(profile_path).exists()
+            featured_player_manager.set_ready(
+                slug, elo, white_book_path, black_book_path, out_path,
+                profile_path if profile_path_exists else None,
+            )
+            if profile_path_exists:
+                threading.Thread(
+                    target=_generate_player_description,
+                    args=(slug, display_name, title, profile_path),
+                    daemon=True,
+                ).start()
+        else:
+            featured_player_manager.set_failed(slug)
+
+    argv = build_featured_player_argv(job_params, out_path, white_book_path, black_book_path, profile_path)
+    launch_job(job, argv, REPO_ROOT, registry, completion_callback=_on_complete)
+    return jsonify({"slug": slug, "job_id": job.id}), 201
+
+
+@app.delete("/api/admin/players/<slug>")
+def api_admin_players_delete(slug: str):
+    _require_admin()
+    player = featured_player_manager.get(slug)
+    if not player:
+        return jsonify({"error": "not found"}), 404
+    for path_key in ("white_book_path", "black_book_path"):
+        p = player.get(path_key)
+        if p:
+            try:
+                Path(p).unlink(missing_ok=True)
+            except OSError:
+                pass
+    featured_player_manager.delete(slug)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/players/<slug>/photo")
+def api_admin_players_upload_photo(slug: str):
+    _require_admin()
+    player = featured_player_manager.get(slug)
+    if not player:
+        return jsonify({"error": "not found"}), 404
+    if "photo" not in request.files:
+        return jsonify({"error": "no file"}), 400
+    file = request.files["photo"]
+    if not file.filename:
+        return jsonify({"error": "no filename"}), 400
+    ext = Path(file.filename).suffix.lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+        return jsonify({"error": "unsupported format; use jpg, png, or webp"}), 400
+    photos_dir = REPO_ROOT / "web" / "static" / "player-photos"
+    photos_dir.mkdir(exist_ok=True)
+    for old in photos_dir.glob(f"{slug}.*"):
+        old.unlink(missing_ok=True)
+    filename = f"{slug}{ext}"
+    file.save(photos_dir / filename)
+    photo_url = f"/static/player-photos/{filename}"
+    featured_player_manager.update_meta(
+        slug, player["display_name"], player["title"], player["description"], photo_url
+    )
+    profile_path = player.get("profile_json_path")
+    if profile_path and Path(profile_path).exists():
+        try:
+            profile_data = json.loads(Path(profile_path).read_text())
+            profile_data["photo_url"] = photo_url
+            Path(profile_path).write_text(json.dumps(profile_data, indent=2))
+        except Exception:
+            pass
+    return jsonify({"ok": True, "photo_url": photo_url})
+
+
+@app.patch("/api/admin/players/<slug>")
+def api_admin_players_update(slug: str):
+    _require_admin()
+    player = featured_player_manager.get(slug)
+    if not player:
+        return jsonify({"error": "not found"}), 404
+    data = request.get_json(force=True)
+    display_name   = (data.get("display_name") or "").strip()
+    title          = (data.get("title") or "").strip() or None
+    description    = (data.get("description") or "").strip() or None
+    photo_position = data.get("photo_position")
+    if photo_position is not None:
+        try:
+            photo_position = max(0, min(100, int(photo_position)))
+        except (TypeError, ValueError):
+            photo_position = None
+    if not display_name:
+        return jsonify({"error": "display_name is required"}), 400
+    featured_player_manager.update_meta(
+        slug, display_name, title, description, player["photo_url"], photo_position
+    )
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/players/<slug>/retrain")
+def api_admin_players_retrain(slug: str):
+    _require_admin()
+    player = featured_player_manager.get(slug)
+    if not player:
+        return jsonify({"error": "not found"}), 404
+
+    featured_player_manager.set_status(slug, "pending")
+
+    job_params = {
+        "opponent_username": player["username"],
+        "platform": player["platform"],
+        "speeds": player["speeds"],
+        "color": "both",
+    }
+    job = registry.create("train-bot", {**job_params, "featured_slug": slug}, user_id=None)
+    out_path        = str(OUTPUT_DIR / f"{job.id}.json")
+    white_book_path = str(PLAYERS_DIR / f"{slug}-white.json")
+    black_book_path = str(PLAYERS_DIR / f"{slug}-black.json")
+    profile_path    = str(PLAYERS_DIR / f"{slug}-profile.json")
+    job.out_path = out_path
+    registry.set_out_path(job.id, out_path)
+
+    def _on_complete(status: str, exit_code: int) -> None:
+        if status == "done":
+            elo = None
+            try:
+                with open(out_path, encoding="utf-8") as f:
+                    model = json.load(f)
+                elo = model.get("opponent_elo")
+            except Exception:
+                pass
+            profile_path_exists = Path(profile_path).exists()
+            featured_player_manager.set_ready(
+                slug, elo, white_book_path, black_book_path, out_path,
+                profile_path if profile_path_exists else None,
+            )
+            if profile_path_exists:
+                threading.Thread(
+                    target=_generate_player_description,
+                    args=(slug, player["display_name"], player.get("title"), profile_path),
+                    daemon=True,
+                ).start()
+        else:
+            featured_player_manager.set_failed(slug)
+
+    argv = build_featured_player_argv(job_params, out_path, white_book_path, black_book_path, profile_path)
+    launch_job(job, argv, REPO_ROOT, registry, completion_callback=_on_complete)
+    return jsonify({"slug": slug, "job_id": job.id})
 
 
 # ---------------------------------------------------------------------------

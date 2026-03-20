@@ -1008,6 +1008,24 @@ def strategise_cmd(
     show_default=True,
     help="Path to the SQLite cache database.",
 )
+@click.option(
+    "--export-white-book",
+    "white_book_out",
+    default=None,
+    help="Export slim opening-book JSON for white to this path.",
+)
+@click.option(
+    "--export-black-book",
+    "black_book_out",
+    default=None,
+    help="Export slim opening-book JSON for black to this path.",
+)
+@click.option(
+    "--export-profile",
+    "profile_out",
+    default=None,
+    help="Export player profile stats JSON to this path.",
+)
 def train_bot_cmd(
     opponent_username: str,
     platform: str,
@@ -1015,6 +1033,9 @@ def train_bot_cmd(
     color_choice: str,
     out_path: str,
     db_path: str,
+    white_book_out: str | None,
+    black_book_out: str | None,
+    profile_out: str | None,
 ) -> None:
     """Train a bot that mimics OPPONENT's opening style and habits.
 
@@ -1049,6 +1070,9 @@ def train_bot_cmd(
             out_path=Path(out_path),
             verbose=True,
             eval_cache=eval_cache,
+            white_book_out=Path(white_book_out) if white_book_out else None,
+            black_book_out=Path(black_book_out) if black_book_out else None,
+            profile_out=Path(profile_out) if profile_out else None,
         )
 
     click.echo("\n[train-bot] Done.")
