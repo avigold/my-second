@@ -196,6 +196,46 @@
 
     </a>
     {% endfor %}
+
+    {# ── "Train your own" invitation card ── #}
+    <a href="{{ '/login' if not logged_in else '/' }}" class="player-card"
+       style="border-color:#1a2744;">
+
+      {# Photo-height area: animated gradient with chess icon #}
+      <div style="position:relative; width:100%; height:300px; overflow:hidden; flex-shrink:0;
+                  background:linear-gradient(160deg,#0a1628 0%,#111827 40%,#0d1225 100%);">
+        <div style="position:absolute; inset:0; display:flex; align-items:center;
+                    justify-content:center; font-size:96px; opacity:0.12; user-select:none;
+                    letter-spacing:-8px;">
+          ♟♙♟
+        </div>
+        <div style="position:absolute; inset:0;
+                    background:linear-gradient(to bottom,transparent 20%,rgba(13,17,23,0.55) 55%,
+                                               rgba(13,17,23,0.92) 78%,#0d1117 100%);">
+        </div>
+        <div style="position:absolute; bottom:0; left:0; right:0; padding:0 18px 16px; z-index:2;">
+          <div style="font-size:18px; font-weight:800; color:#fff; margin-bottom:4px;
+                      text-shadow:0 1px 4px rgba(0,0,0,0.6);">
+            Any player
+          </div>
+          <div style="font-size:12px; color:rgba(147,197,253,0.6);">
+            Lichess · Chess.com
+          </div>
+        </div>
+      </div>
+
+      {# Card body #}
+      <div class="card-body">
+        <p style="font-size:13px; color:#6b7280; line-height:1.65; margin:0 0 16px; flex:1;">
+          Enter any username to train a bot on their real opening repertoire — then practice
+          against it or analyse their habits and novelties.
+        </p>
+        <div class="play-btn" style="background:rgba(79,70,229,0.85); border-color:rgba(129,140,248,0.3);">
+          {{ 'Get started →' if not logged_in else 'Train a bot →' }}
+        </div>
+      </div>
+
+    </a>
   </div>
 
   {% else %}
