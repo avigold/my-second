@@ -14,6 +14,18 @@ class FeaturedPlayerManager:
 
     def __init__(self, database_url: str) -> None:
         self._db_url = database_url
+        self._ensure_sort_order_column()
+
+    def _ensure_sort_order_column(self) -> None:
+        """Idempotent: add sort_order column if it doesn't exist yet."""
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                ALTER TABLE featured_players
+                ADD COLUMN IF NOT EXISTS sort_order INTEGER
+                """
+            )
+            conn.commit()
 
     @contextmanager
     def _conn(self):
@@ -59,10 +71,20 @@ class FeaturedPlayerManager:
             cursor_factory=psycopg2.extras.RealDictCursor
         ) as cur:
             cur.execute(
-                "SELECT * FROM featured_players ORDER BY created_at ASC"
+                "SELECT * FROM featured_players ORDER BY sort_order ASC NULLS LAST, created_at ASC"
             )
             rows = cur.fetchall()
         return [_serialise(r) for r in rows]
+
+    def reorder(self, slugs: list[str]) -> None:
+        """Set sort_order for each slug based on the provided order."""
+        with self._conn() as conn, conn.cursor() as cur:
+            for i, slug in enumerate(slugs):
+                cur.execute(
+                    "UPDATE featured_players SET sort_order = %s WHERE slug = %s",
+                    (i, slug),
+                )
+            conn.commit()
 
     def get(self, slug: str) -> dict[str, Any] | None:
         with self._conn() as conn, conn.cursor(

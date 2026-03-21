@@ -150,6 +150,7 @@ async function loadJobs() {
 
 // ─── Featured Players ────────────────────────────────────────────────
 let _players = [];
+let _dragSrcSlug = null;
 
 async function loadPlayers() {
   try {
@@ -157,45 +158,104 @@ async function loadPlayers() {
     if (!r.ok) throw new Error(r.status);
     const players = await r.json();
     _players = players;
-    const tbody = document.getElementById('players-tbody');
-    if (!players.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-600 text-xs">No featured players yet.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = players.map(p => {
-      const statusCls = p.status === 'ready' ? 'badge-done' : p.status === 'failed' ? 'badge-failed' : 'badge-queued';
-      return `
-        <tr class="admin-table-row">
-          <td class="px-4 py-3 font-mono text-xs text-gray-300">
-            <a href="/players/${escHtml(p.slug)}" class="hover:text-blue-400">${escHtml(p.slug)}</a>
-          </td>
-          <td class="px-4 py-3 text-sm text-gray-200">${escHtml(p.display_name)}
-            ${p.title ? `<span class="badge badge-titled ml-1">${escHtml(p.title)}</span>` : ''}
-          </td>
-          <td class="px-4 py-3 text-xs text-gray-500">${escHtml(p.platform)}</td>
-          <td class="px-4 py-3 text-xs text-gray-400">${p.elo || '—'}</td>
-          <td class="px-4 py-3"><span class="badge ${statusCls}">${escHtml(p.status)}</span></td>
-          <td class="px-4 py-3 flex gap-2">
-            <button onclick="editPlayer('${escHtml(p.slug)}')"
-                    class="text-xs bg-blue-900 hover:bg-blue-800 text-blue-300 px-2 py-1 rounded transition-colors">
-              Edit
-            </button>
-            <button onclick="retrainPlayer('${escHtml(p.slug)}')"
-                    class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded transition-colors">
-              Re-train
-            </button>
-            <button onclick="deletePlayer('${escHtml(p.slug)}')"
-                    class="text-xs bg-red-900 hover:bg-red-800 text-red-300 px-2 py-1 rounded transition-colors">
-              Delete
-            </button>
-          </td>
-        </tr>
-      `;
-    }).join('');
+    renderPlayersTable();
   } catch(e) {
     document.getElementById('players-tbody').innerHTML =
-      `<tr><td colspan="6" class="px-4 py-4 text-red-400 text-xs px-4">Error: ${e}</td></tr>`;
+      `<tr><td colspan="7" class="px-4 py-4 text-red-400 text-xs px-4">Error: ${e}</td></tr>`;
   }
+}
+
+function renderPlayersTable() {
+  const tbody = document.getElementById('players-tbody');
+  if (!_players.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-6 text-center text-gray-600 text-xs">No featured players yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _players.map(p => {
+    const statusCls = p.status === 'ready' ? 'badge-done' : p.status === 'failed' ? 'badge-failed' : 'badge-queued';
+    return `
+      <tr class="admin-table-row" draggable="true" data-slug="${escHtml(p.slug)}"
+          ondragstart="onPlayerDragStart(event)"
+          ondragover="onPlayerDragOver(event)"
+          ondrop="onPlayerDrop(event)"
+          ondragend="onPlayerDragEnd(event)">
+        <td class="px-2 py-3 text-center text-gray-600 cursor-grab select-none"
+            style="font-size:1.1rem; line-height:1;" title="Drag to reorder">⠿</td>
+        <td class="px-4 py-3 font-mono text-xs text-gray-300">
+          <a href="/players/${escHtml(p.slug)}" class="hover:text-blue-400">${escHtml(p.slug)}</a>
+        </td>
+        <td class="px-4 py-3 text-sm text-gray-200">${escHtml(p.display_name)}
+          ${p.title ? `<span class="badge badge-titled ml-1">${escHtml(p.title)}</span>` : ''}
+        </td>
+        <td class="px-4 py-3 text-xs text-gray-500">${escHtml(p.platform)}</td>
+        <td class="px-4 py-3 text-xs text-gray-400">${p.elo || '—'}</td>
+        <td class="px-4 py-3"><span class="badge ${statusCls}">${escHtml(p.status)}</span></td>
+        <td class="px-4 py-3 flex gap-2">
+          <button onclick="editPlayer('${escHtml(p.slug)}')"
+                  class="text-xs bg-blue-900 hover:bg-blue-800 text-blue-300 px-2 py-1 rounded transition-colors">
+            Edit
+          </button>
+          <button onclick="retrainPlayer('${escHtml(p.slug)}')"
+                  class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2 py-1 rounded transition-colors">
+            Re-train
+          </button>
+          <button onclick="deletePlayer('${escHtml(p.slug)}')"
+                  class="text-xs bg-red-900 hover:bg-red-800 text-red-300 px-2 py-1 rounded transition-colors">
+            Delete
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function onPlayerDragStart(e) {
+  _dragSrcSlug = e.currentTarget.dataset.slug;
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.style.opacity = '0.4';
+}
+
+function onPlayerDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const tbody = document.getElementById('players-tbody');
+  tbody.querySelectorAll('tr[data-slug]').forEach(r => r.classList.remove('drag-over'));
+  const target = e.currentTarget;
+  if (target.dataset.slug !== _dragSrcSlug) {
+    target.classList.add('drag-over');
+  }
+}
+
+function onPlayerDrop(e) {
+  e.preventDefault();
+  const targetSlug = e.currentTarget.dataset.slug;
+  if (!_dragSrcSlug || targetSlug === _dragSrcSlug) return;
+
+  const srcIdx  = _players.findIndex(p => p.slug === _dragSrcSlug);
+  const dstIdx  = _players.findIndex(p => p.slug === targetSlug);
+  if (srcIdx < 0 || dstIdx < 0) return;
+
+  // Reorder in-memory array
+  const [moved] = _players.splice(srcIdx, 1);
+  _players.splice(dstIdx, 0, moved);
+  renderPlayersTable();
+
+  // Persist to server
+  const slugs = _players.map(p => p.slug);
+  fetch('/api/admin/players/reorder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slugs }),
+  }).catch(err => console.error('reorder failed', err));
+}
+
+function onPlayerDragEnd(e) {
+  _dragSrcSlug = null;
+  const tbody = document.getElementById('players-tbody');
+  tbody.querySelectorAll('tr[data-slug]').forEach(r => {
+    r.style.opacity = '';
+    r.classList.remove('drag-over');
+  });
 }
 
 function editPlayer(slug) {

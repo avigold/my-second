@@ -2157,6 +2157,17 @@ def api_admin_players_retrain(slug: str):
     return jsonify({"slug": slug, "job_id": job.id})
 
 
+@app.post("/api/admin/players/reorder")
+def api_admin_players_reorder():
+    _require_admin()
+    body = request.get_json(force=True)
+    slugs = body.get("slugs")
+    if not isinstance(slugs, list) or not slugs:
+        return jsonify({"error": "slugs list required"}), 400
+    featured_player_manager.reorder(slugs)
+    return jsonify({"ok": True})
+
+
 # ---------------------------------------------------------------------------
 # Admin backup routes
 # ---------------------------------------------------------------------------

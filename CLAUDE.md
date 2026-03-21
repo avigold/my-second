@@ -5,10 +5,11 @@
 These rules exist because an AI assistant once silently deployed unfinished features to production by merging a feature branch that was built on top of another feature branch. **These rules are non-negotiable.**
 
 1. **Never merge to `main` or deploy without explicit per-session user confirmation.** "We'll need to merge and deploy" in a previous session does not count. Ask every time.
-2. **Before any merge to `main`, run `git log main..<branch> --oneline` and show the full commit list to the user.** The user must acknowledge every commit that will land.
-3. **Feature branches must never be built on top of other feature branches** unless the user explicitly intends both to ship together. If a branch was built off another feature branch, flag this before merging.
-4. **Never force-push to `main` without explicit user confirmation** stating "yes, force push."
-5. **If a session ends mid-task, do not resume destructive or deployment actions in the next session** without re-confirming intent with the user.
+2. **Never `git push` or run deploy commands without explicit user confirmation in the same session.** This applies even for small, seemingly safe changes. Always show the diff/commit and ask before pushing or deploying.
+3. **Before any merge to `main`, run `git log main..<branch> --oneline` and show the full commit list to the user.** The user must acknowledge every commit that will land.
+4. **Feature branches must never be built on top of other feature branches** unless the user explicitly intends both to ship together. If a branch was built off another feature branch, flag this before merging.
+5. **Never force-push to `main` without explicit user confirmation** stating "yes, force push."
+6. **If a session ends mid-task, do not resume destructive or deployment actions in the next session** without re-confirming intent with the user.
 
 ## Code organisation rules
 
