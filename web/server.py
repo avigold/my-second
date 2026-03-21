@@ -1824,11 +1824,12 @@ def _generate_player_description(slug: str, display_name: str, title: str | None
 
         prompt = (
             f"Write a compelling 3-4 sentence profile of chess player {title_str}{display_name} "
-            f"for a chess enthusiast audience. Cover their signature openings, overall style, "
-            f"and any standout statistical traits. Be specific and vivid — mention actual move names. "
-            f"Do not use vague language like 'dynamic' or 'solid' without backing it with data.\n\n"
-            f"Data:\n"
-            f"- {profile.get('total_games', 0):,} games indexed\n"
+            f"for a chess enthusiast audience.\n\n"
+            f"Use your own knowledge of {display_name}'s playing style, reputation, and signature "
+            f"openings as the foundation. Then weave in the statistical details below to add "
+            f"specificity and ground the profile in real data. If the stats seem to contradict "
+            f"their known reputation, trust your knowledge — the dataset may be incomplete.\n\n"
+            f"Statistical data ({profile.get('total_games', 0):,} games indexed):\n"
             f"- As White: {sw.get('avg_win_rate', 0):.0%} win rate, {sw.get('draw_rate', 0):.0%} draws, "
             f"most common first move {fm_w}\n"
             f"- Top White openings: {', '.join(top_white) or 'varied'}\n"
@@ -1836,12 +1837,13 @@ def _generate_player_description(slug: str, display_name: str, title: str | None
             f"- Top Black openings: {', '.join(top_black) or 'varied'}\n"
             f"- Endgame conversion: {end_str} when reaching endgame "
             f"(endgame reach {ph.get('endgame_reach_rate', 0):.0%})\n\n"
+            f"Be specific and vivid — mention actual opening names and move sequences. "
             f"Write only the description text, no headers or preamble."
         )
 
         client = _anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}],
         )
