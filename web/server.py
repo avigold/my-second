@@ -190,10 +190,22 @@ def sitemap():
     return Response("\n".join(lines), mimetype="application/xml")
 
 
+def _safe_next() -> str:
+    """Return the ?next= param if it's a safe relative path, else '/'."""
+    nxt = request.args.get("next", "")
+    if nxt and nxt.startswith("/") and not nxt.startswith("//"):
+        return nxt
+    return "/"
+
+
 @app.get("/login")
 def login_page():
     if get_current_user():
-        return redirect("/")
+        return redirect(_safe_next() or "/")
+    # Persist intended destination so the OAuth callback can redirect there.
+    nxt = _safe_next()
+    if nxt != "/":
+        session["next_url"] = nxt
     return render_template(
         "login.html",
         lichess_ok=lichess_enabled(),
@@ -213,7 +225,7 @@ def auth_lichess_callback():
     if user is None:
         return "Authentication failed — please try again.", 400
     set_session_user(user)
-    return redirect("/")
+    return redirect(session.pop("next_url", "/"))
 
 
 @app.get("/auth/chesscom")
@@ -227,7 +239,7 @@ def auth_chesscom_callback():
     if user is None:
         return "Authentication failed — please try again.", 400
     set_session_user(user)
-    return redirect("/")
+    return redirect(session.pop("next_url", "/"))
 
 
 @app.get("/auth/google")
@@ -241,7 +253,7 @@ def auth_google_callback():
     if user is None:
         return "Authentication failed — please try again.", 400
     set_session_user(user)
-    return redirect("/")
+    return redirect(session.pop("next_url", "/"))
 
 
 @app.get("/auth/logout")

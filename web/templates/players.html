@@ -198,7 +198,7 @@
     {% endfor %}
 
     {# ── "Train your own" invitation card ── #}
-    <a href="{{ '/login' if not logged_in else '/' }}" class="player-card"
+    <a href="{{ '/login?next=/bots' if not logged_in else '/bots' }}" class="player-card"
        style="border-color:#1a2744;">
 
       {# Photo-height area: animated gradient with chess icon #}
