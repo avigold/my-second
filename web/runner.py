@@ -272,10 +272,12 @@ def build_featured_player_argv(
     white_book_path: str,
     black_book_path: str,
     profile_path: str,
+    include_profile: bool = True,
 ) -> list[str]:
     """Build the argv list for training a featured player (train-bot + book + profile export)."""
     cmd = build_train_bot_argv(params, out_path)
     cmd += ["--export-white-book", white_book_path]
     cmd += ["--export-black-book", black_book_path]
-    cmd += ["--export-profile", profile_path]
+    if include_profile:
+        cmd += ["--export-profile", profile_path]
     return cmd

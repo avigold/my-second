@@ -207,21 +207,47 @@
     <p id="retrain-player-name" class="text-xs text-gray-500 mb-4"></p>
     <input type="hidden" id="retrain-slug">
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-      <div>
-        <label class="block text-xs text-gray-500 mb-1">Platform</label>
-        <select id="retrain-platform" class="form-input text-sm" style="background:#111827;">
-          <option value="lichess">Lichess</option>
-          <option value="chesscom">Chess.com</option>
-        </select>
+      <div id="retrain-train-fields" class="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Platform</label>
+          <select id="retrain-platform" class="form-input text-sm" style="background:#111827;">
+            <option value="lichess">Lichess</option>
+            <option value="chesscom">Chess.com</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Username</label>
+          <input id="retrain-username" class="form-input text-sm" style="background:#111827;">
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs text-gray-500 mb-1">Speeds <span class="text-gray-600">(comma-separated)</span></label>
+          <input id="retrain-speeds" placeholder="blitz,rapid" class="form-input text-sm" style="background:#111827;">
+          <p class="text-xs text-gray-600 mt-1">Options: bullet, blitz, rapid, classical, correspondence</p>
+        </div>
       </div>
-      <div>
-        <label class="block text-xs text-gray-500 mb-1">Username</label>
-        <input id="retrain-username" class="form-input text-sm" style="background:#111827;">
-      </div>
-      <div class="sm:col-span-2">
-        <label class="block text-xs text-gray-500 mb-1">Speeds <span class="text-gray-600">(comma-separated)</span></label>
-        <input id="retrain-speeds" placeholder="blitz,rapid" class="form-input text-sm" style="background:#111827;">
-        <p class="text-xs text-gray-600 mt-1">Options: bullet, blitz, rapid, classical, correspondence</p>
+      <div class="sm:col-span-2 pt-1">
+        <label class="block text-xs text-gray-500 mb-2">What to regenerate</label>
+        <div class="space-y-2">
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" id="retrain-regen-bot" checked
+                   class="w-3.5 h-3.5 accent-blue-500"
+                   onchange="updateRetrainCheckboxes()">
+            <span class="text-xs text-gray-300 font-medium">Bot + opening books</span>
+            <span class="text-xs text-gray-600">re-download games and retrain</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer" id="retrain-profile-row">
+            <input type="checkbox" id="retrain-regen-profile" checked
+                   class="w-3.5 h-3.5 accent-blue-500">
+            <span class="text-xs text-gray-300 font-medium">Profile stats</span>
+            <span class="text-xs text-gray-600">export opening analysis JSON</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" id="retrain-regen-description" checked
+                   class="w-3.5 h-3.5 accent-blue-500">
+            <span class="text-xs text-gray-300 font-medium">Description text</span>
+            <span class="text-xs text-gray-600">regenerate AI-written bio</span>
+          </label>
+        </div>
       </div>
     </div>
     <div class="flex items-center gap-3">

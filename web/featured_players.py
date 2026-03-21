@@ -97,14 +97,20 @@ class FeaturedPlayerManager:
             )
             conn.commit()
 
-    def set_description(self, slug: str, description: str) -> None:
-        """Set description only if not already populated."""
+    def set_description(self, slug: str, description: str, force: bool = False) -> None:
+        """Set description. If force=False (default), only sets when not already populated."""
         with self._conn() as conn, conn.cursor() as cur:
-            cur.execute(
-                """UPDATE featured_players SET description = %s
-                   WHERE slug = %s AND (description IS NULL OR description = '')""",
-                (description, slug),
-            )
+            if force:
+                cur.execute(
+                    "UPDATE featured_players SET description = %s WHERE slug = %s",
+                    (description, slug),
+                )
+            else:
+                cur.execute(
+                    """UPDATE featured_players SET description = %s
+                       WHERE slug = %s AND (description IS NULL OR description = '')""",
+                    (description, slug),
+                )
             conn.commit()
 
     def update_meta(

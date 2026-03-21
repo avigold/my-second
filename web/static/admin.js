@@ -334,14 +334,31 @@ function closeRetrainModal() {
   document.getElementById('retrain-modal').classList.add('hidden');
 }
 
-async function submitRetrain() {
-  const slug     = document.getElementById('retrain-slug').value;
-  const platform = document.getElementById('retrain-platform').value.trim();
-  const username = document.getElementById('retrain-username').value.trim();
-  const speeds   = document.getElementById('retrain-speeds').value.trim();
-  const msg      = document.getElementById('retrain-msg');
+function updateRetrainCheckboxes() {
+  const regenBot     = document.getElementById('retrain-regen-bot').checked;
+  const profileRow   = document.getElementById('retrain-profile-row');
+  const profileInput = document.getElementById('retrain-regen-profile');
+  // Profile stats only possible when retraining the bot
+  profileRow.style.opacity  = regenBot ? '1' : '0.4';
+  profileInput.disabled     = !regenBot;
+  if (!regenBot) profileInput.checked = false;
+  // Hide platform/username/speeds when not retraining
+  const trainFields = document.getElementById('retrain-train-fields');
+  if (trainFields) trainFields.style.display = regenBot ? '' : 'none';
+}
 
-  if (!username) { msg.textContent = 'Username is required.'; msg.style.color = '#f87171'; return; }
+async function submitRetrain() {
+  const slug             = document.getElementById('retrain-slug').value;
+  const platform         = document.getElementById('retrain-platform').value.trim();
+  const username         = document.getElementById('retrain-username').value.trim();
+  const speeds           = document.getElementById('retrain-speeds').value.trim();
+  const regenBot         = document.getElementById('retrain-regen-bot').checked;
+  const regenProfile     = document.getElementById('retrain-regen-profile').checked;
+  const regenDescription = document.getElementById('retrain-regen-description').checked;
+  const msg              = document.getElementById('retrain-msg');
+
+  if (regenBot && !username) { msg.textContent = 'Username is required.'; msg.style.color = '#f87171'; return; }
+  if (!regenBot && !regenDescription) { msg.textContent = 'Nothing selected.'; msg.style.color = '#f87171'; return; }
 
   msg.textContent = 'Starting…';
   msg.style.color = '#9ca3af';
@@ -349,7 +366,12 @@ async function submitRetrain() {
     const r = await fetch(`/api/admin/players/${slug}/retrain`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform, username, speeds }),
+      body: JSON.stringify({
+        platform, username, speeds,
+        regen_bot: regenBot,
+        regen_profile: regenProfile,
+        regen_description: regenDescription,
+      }),
     });
     const d = await r.json();
     if (!r.ok) { msg.textContent = `Error: ${d.error || r.status}`; msg.style.color = '#f87171'; return; }

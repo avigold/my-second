@@ -1877,7 +1877,7 @@ def api_admin_players_list():
     return jsonify(featured_player_manager.list_all())
 
 
-def _generate_player_description(slug: str, display_name: str, title: str | None, profile_path: str) -> None:
+def _generate_player_description(slug: str, display_name: str, title: str | None, profile_path: str, force: bool = False) -> None:
     """Generate an AI description for a featured player and store it in the DB."""
     try:
         import anthropic as _anthropic
@@ -1929,7 +1929,7 @@ def _generate_player_description(slug: str, display_name: str, title: str | None
         )
         description = msg.content[0].text.strip()
         if description:
-            featured_player_manager.set_description(slug, description)
+            featured_player_manager.set_description(slug, description, force=force)
     except Exception:
         pass  # Description generation is best-effort
 
@@ -2084,13 +2084,31 @@ def api_admin_players_retrain(slug: str):
         return jsonify({"error": "not found"}), 404
 
     body = request.get_json(silent=True) or {}
-    platform = body.get("platform") or player["platform"]
-    username = body.get("username") or player["username"]
-    speeds   = body.get("speeds")   or player["speeds"]
+    platform          = body.get("platform")          or player["platform"]
+    username          = body.get("username")          or player["username"]
+    speeds            = body.get("speeds")            or player["speeds"]
+    regen_bot         = body.get("regen_bot",         True)
+    regen_profile     = body.get("regen_profile",     True)
+    regen_description = body.get("regen_description", True)
 
     # Persist any changed training params before starting the job.
     if platform != player["platform"] or username != player["username"] or speeds != player["speeds"]:
         featured_player_manager.update_training_params(slug, platform, username, speeds)
+
+    profile_path    = str(PLAYERS_DIR / f"{slug}-profile.json")
+
+    # Description-only mode: no training job needed.
+    if not regen_bot:
+        if regen_description:
+            if not Path(profile_path).exists():
+                return jsonify({"error": "No profile found; retrain the bot first to generate stats"}), 400
+            threading.Thread(
+                target=_generate_player_description,
+                args=(slug, player["display_name"], player.get("title"), profile_path),
+                kwargs={"force": True},
+                daemon=True,
+            ).start()
+        return jsonify({"slug": slug, "description_regenerating": regen_description})
 
     featured_player_manager.set_status(slug, "pending")
 
@@ -2104,7 +2122,6 @@ def api_admin_players_retrain(slug: str):
     out_path        = str(OUTPUT_DIR / f"{job.id}.json")
     white_book_path = str(PLAYERS_DIR / f"{slug}-white.json")
     black_book_path = str(PLAYERS_DIR / f"{slug}-black.json")
-    profile_path    = str(PLAYERS_DIR / f"{slug}-profile.json")
     job.out_path = out_path
     registry.set_out_path(job.id, out_path)
 
@@ -2122,16 +2139,20 @@ def api_admin_players_retrain(slug: str):
                 slug, elo, white_book_path, black_book_path, out_path,
                 profile_path if profile_path_exists else None,
             )
-            if profile_path_exists:
+            if profile_path_exists and regen_description:
                 threading.Thread(
                     target=_generate_player_description,
                     args=(slug, player["display_name"], player.get("title"), profile_path),
+                    kwargs={"force": True},
                     daemon=True,
                 ).start()
         else:
             featured_player_manager.set_failed(slug)
 
-    argv = build_featured_player_argv(job_params, out_path, white_book_path, black_book_path, profile_path)
+    argv = build_featured_player_argv(
+        job_params, out_path, white_book_path, black_book_path, profile_path,
+        include_profile=regen_profile,
+    )
     launch_job(job, argv, REPO_ROOT, registry, completion_callback=_on_complete)
     return jsonify({"slug": slug, "job_id": job.id})
 
