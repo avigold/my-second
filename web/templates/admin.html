@@ -200,6 +200,44 @@
   </div>
 </div>
 
+<!-- Retrain Modal -->
+<div id="retrain-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.75);">
+  <div class="rounded-xl border border-gray-700 p-6 w-full max-w-md mx-4" style="background:#0f172a;">
+    <h3 class="text-sm font-semibold text-gray-200 mb-1">Re-train Player</h3>
+    <p id="retrain-player-name" class="text-xs text-gray-500 mb-4"></p>
+    <input type="hidden" id="retrain-slug">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Platform</label>
+        <select id="retrain-platform" class="form-input text-sm" style="background:#111827;">
+          <option value="lichess">Lichess</option>
+          <option value="chesscom">Chess.com</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Username</label>
+        <input id="retrain-username" class="form-input text-sm" style="background:#111827;">
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs text-gray-500 mb-1">Speeds <span class="text-gray-600">(comma-separated)</span></label>
+        <input id="retrain-speeds" placeholder="blitz,rapid" class="form-input text-sm" style="background:#111827;">
+        <p class="text-xs text-gray-600 mt-1">Options: bullet, blitz, rapid, classical, correspondence</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick="submitRetrain()"
+              class="bg-amber-700 hover:bg-amber-600 text-white text-xs font-semibold px-5 py-2 rounded-lg transition-colors">
+        Re-train
+      </button>
+      <button onclick="closeRetrainModal()"
+              class="bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
+        Cancel
+      </button>
+      <span id="retrain-msg" class="text-xs"></span>
+    </div>
+  </div>
+</div>
+
 <!-- ─── Jobs table ─────────────────────────────────────────────────── -->
 <section class="mb-10">
   <div class="flex items-center justify-between mb-3">

@@ -2083,12 +2083,21 @@ def api_admin_players_retrain(slug: str):
     if not player:
         return jsonify({"error": "not found"}), 404
 
+    body = request.get_json(silent=True) or {}
+    platform = body.get("platform") or player["platform"]
+    username = body.get("username") or player["username"]
+    speeds   = body.get("speeds")   or player["speeds"]
+
+    # Persist any changed training params before starting the job.
+    if platform != player["platform"] or username != player["username"] or speeds != player["speeds"]:
+        featured_player_manager.update_training_params(slug, platform, username, speeds)
+
     featured_player_manager.set_status(slug, "pending")
 
     job_params = {
-        "opponent_username": player["username"],
-        "platform": player["platform"],
-        "speeds": player["speeds"],
+        "opponent_username": username,
+        "platform": platform,
+        "speeds": speeds,
         "color": "both",
     }
     job = registry.create("train-bot", {**job_params, "featured_slug": slug}, user_id=None)

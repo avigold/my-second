@@ -318,15 +318,44 @@ async function addPlayer(e) {
   }
 }
 
-async function retrainPlayer(slug) {
-  if (!confirm(`Re-train ${slug}?`)) return;
+function retrainPlayer(slug) {
+  const p = _players.find(x => x.slug === slug);
+  if (!p) return;
+  document.getElementById('retrain-slug').value         = slug;
+  document.getElementById('retrain-player-name').textContent = p.display_name;
+  document.getElementById('retrain-platform').value     = p.platform || 'lichess';
+  document.getElementById('retrain-username').value     = p.username || '';
+  document.getElementById('retrain-speeds').value       = p.speeds || 'blitz,rapid';
+  document.getElementById('retrain-msg').textContent    = '';
+  document.getElementById('retrain-modal').classList.remove('hidden');
+}
+
+function closeRetrainModal() {
+  document.getElementById('retrain-modal').classList.add('hidden');
+}
+
+async function submitRetrain() {
+  const slug     = document.getElementById('retrain-slug').value;
+  const platform = document.getElementById('retrain-platform').value.trim();
+  const username = document.getElementById('retrain-username').value.trim();
+  const speeds   = document.getElementById('retrain-speeds').value.trim();
+  const msg      = document.getElementById('retrain-msg');
+
+  if (!username) { msg.textContent = 'Username is required.'; msg.style.color = '#f87171'; return; }
+
+  msg.textContent = 'Starting…';
+  msg.style.color = '#9ca3af';
   try {
-    const r = await fetch(`/api/admin/players/${slug}/retrain`, { method: 'POST' });
+    const r = await fetch(`/api/admin/players/${slug}/retrain`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform, username, speeds }),
+    });
     const d = await r.json();
-    if (!r.ok) { alert(`Error: ${d.error || r.status}`); return; }
-    alert(`Re-training started (${d.job_id?.slice(0,8)})`);
+    if (!r.ok) { msg.textContent = `Error: ${d.error || r.status}`; msg.style.color = '#f87171'; return; }
+    closeRetrainModal();
     loadPlayers();
-  } catch(e) { alert(`Network error: ${e}`); }
+  } catch(e) { msg.textContent = `Network error: ${e}`; msg.style.color = '#f87171'; }
 }
 
 async function deletePlayer(slug) {

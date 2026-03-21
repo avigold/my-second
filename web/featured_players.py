@@ -129,6 +129,24 @@ class FeaturedPlayerManager:
             conn.commit()
         return updated
 
+    def update_training_params(
+        self,
+        slug: str,
+        platform: str,
+        username: str,
+        speeds: str,
+    ) -> bool:
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                """UPDATE featured_players
+                      SET platform = %s, username = %s, speeds = %s
+                    WHERE slug = %s""",
+                (platform, username, speeds, slug),
+            )
+            updated = cur.rowcount > 0
+            conn.commit()
+        return updated
+
     def set_failed(self, slug: str) -> None:
         with self._conn() as conn, conn.cursor() as cur:
             cur.execute(
