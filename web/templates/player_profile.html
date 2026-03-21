@@ -7,6 +7,19 @@
   <meta name="description" content="Practice against {{ player.display_name }}'s real opening repertoire, built from their game history on {{ player.platform }}. Free — no login required.">
   <link rel="canonical" href="https://mysecond.app/players/{{ player.slug }}">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <!-- Open Graph / social sharing -->
+  {% set _og_img = player.photo_url or player.avatar_url or 'https://mysecond.app/static/og.png' %}
+  <meta property="og:type"        content="website">
+  <meta property="og:site_name"   content="mysecond">
+  <meta property="og:url"         content="https://mysecond.app/players/{{ player.slug }}">
+  <meta property="og:title"       content="{{ player.display_name }}{% if player.title %} ({{ player.title }}){% endif %} — Opening Repertoire & Bot | mysecond">
+  <meta property="og:description" content="{{ player.description or ('Practice against ' + player.display_name + \"'s real opening repertoire, built from their game history on \" + player.platform + '. Free — no login required.') }}">
+  <meta property="og:image"       content="{{ _og_img }}">
+  <!-- Twitter / X Card -->
+  <meta name="twitter:card"        content="summary_large_image">
+  <meta name="twitter:title"       content="{{ player.display_name }}{% if player.title %} ({{ player.title }}){% endif %} — Opening Repertoire & Bot | mysecond">
+  <meta name="twitter:description" content="{{ player.description or ('Practice against ' + player.display_name + \"'s real opening repertoire. Free — no login required.\") }}">
+  <meta name="twitter:image"       content="{{ _og_img }}">
 </head>
 <body style="margin:0; padding:0; background:#030712; color:#f3f4f6;">
   {# SSR content for SEO crawlers — hidden visually but indexable. #}
