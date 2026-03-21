@@ -243,11 +243,13 @@ def train_bot(
 
         # Style profiles from opening cache.
         style: dict = {}
+        cache_indices: dict[str, dict] = {}   # color → cache_index, reused for total_games
         start_norm = " ".join(chess.STARTING_FEN.split()[:3]) + " -"
         for color in colors:
             backend = _backend_key(opponent_username, color, speeds, platform=opponent_platform)
             entries = cache.scan_backend(backend)
             cache_index: dict = {fen: payload for fen, payload in entries}
+            cache_indices[color] = cache_index
             profile_style = _compute_style_profile(cache_index, color)
 
             # First-move distribution.
@@ -309,19 +311,36 @@ def train_bot(
             profile_style["top_openings"] = _build_opening_lines(cache_index, color, top_n=10)
             style[color] = profile_style
 
-        # Total games indexed (sum at starting position, both colors).
+        # Total games indexed (white + black combined).
+        # White cache: starting FEN is white-to-move, so it exists there directly.
+        # Black cache: starting FEN is absent (only black-to-move positions are stored),
+        #   so we sum depth-1 positions (after each legal white first move) instead.
         total_games = 0
+        board0 = chess.Board()
         for color in colors:
-            backend = _backend_key(opponent_username, color, speeds, platform=opponent_platform)
-            entries = cache.scan_backend(backend)
-            for fen, payload in entries:
-                if fen == start_norm:
+            idx = cache_indices.get(color, {})
+            if color == "white":
+                payload = idx.get(start_norm, {})
+                total_games += (
+                    payload.get("white", 0)
+                    + payload.get("draws", 0)
+                    + payload.get("black", 0)
+                )
+            else:
+                seen_fens: set[str] = set()
+                for white_move in board0.legal_moves:
+                    b1 = board0.copy()
+                    b1.push(white_move)
+                    nfen1 = " ".join(b1.fen().split()[:3]) + " -"
+                    if nfen1 in seen_fens:
+                        continue
+                    seen_fens.add(nfen1)
+                    payload = idx.get(nfen1, {})
                     total_games += (
                         payload.get("white", 0)
                         + payload.get("draws", 0)
                         + payload.get("black", 0)
                     )
-                    break
 
         # Game phase stats (downloads raw PGNs; use first color only to avoid double-counting).
         phase_stats = analyze_game_phases(
