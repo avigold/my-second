@@ -158,6 +158,9 @@ class Job:
     process: Any          = field(default=None, repr=False)
     # Callback set by the job queue to actually launch the subprocess:
     _launch_fn: Any       = field(default=None, repr=False)
+    # Callback called on completion (status, exit_code) — not persisted,
+    # must be re-registered after restart for orphaned jobs:
+    _completion_fn: Any   = field(default=None, repr=False)
 
     def to_dict(self) -> dict:
         return {
@@ -407,6 +410,17 @@ class JobRegistry:
             cur.execute("SELECT log_text FROM jobs WHERE id = %s", (job_id,))
             row = cur.fetchone()
         return row[0].splitlines() if row and row[0] else []
+
+    def set_completion_callback(self, job_id: str, fn) -> None:
+        """Register (or replace) the completion callback for an existing job.
+
+        Used at startup to re-attach callbacks to orphaned subprocesses that
+        survived a gunicorn restart.
+        """
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job:
+                job._completion_fn = fn
 
     def resolve_orphan(self, job_id: str, status: str, exit_code: int) -> None:
         """Mark an orphaned job done/failed without touching log_text.
@@ -891,6 +905,11 @@ def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
             _drain_new_lines()
             registry.resolve_orphan(job.id, "done", 0)
             job.queue.put(None)  # SSE sentinel
+            if job._completion_fn:
+                try:
+                    job._completion_fn("done", 0)
+                except Exception:
+                    pass
             return
 
         if pid and not _pid_alive(pid):
@@ -902,6 +921,11 @@ def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
             if out and out.exists():
                 registry.resolve_orphan(job.id, "done", exit_code=0)
                 job.queue.put(None)
+                if job._completion_fn:
+                    try:
+                        job._completion_fn("done", 0)
+                    except Exception:
+                        pass
                 return
             # Use resolve_orphan (not update_status) so we never overwrite
             # log_text.  The real reader thread on another worker may have
@@ -911,6 +935,11 @@ def _watch_orphan(job: "Job", registry: "JobRegistry") -> None:
             # if the other worker already resolved the job.
             registry.resolve_orphan(job.id, "failed", -1)
             job.queue.put(None)
+            if job._completion_fn:
+                try:
+                    job._completion_fn("failed", -1)
+                except Exception:
+                    pass
             return
 
         time.sleep(3)

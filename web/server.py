@@ -121,6 +121,70 @@ featured_player_manager = FeaturedPlayerManager(DATABASE_URL)
 PLAYERS_DIR = DATA_DIR / "players"
 PLAYERS_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def _restore_featured_player_callbacks() -> None:
+    """Re-attach completion callbacks to orphaned train-bot jobs after restart.
+
+    _load_existing() starts _watch_orphan threads for running jobs, but those
+    threads don't have a _completion_fn.  Without it, featured_player_manager
+    .set_ready() is never called when the subprocess finishes.  This function
+    iterates over all in-memory jobs, finds running train-bot jobs with a
+    featured_slug, and registers the same callback that the launch route would
+    have set.
+    """
+    with registry._lock:
+        jobs_snapshot = list(registry._jobs.values())
+
+    for job in jobs_snapshot:
+        if job.command != "train-bot":
+            continue
+        slug = job.params.get("featured_slug")
+        if not slug:
+            continue
+
+        player = featured_player_manager.get(slug)
+        if player is None:
+            continue
+
+        out_path        = job.out_path or str(OUTPUT_DIR / f"{job.id}.json")
+        white_book_path = str(PLAYERS_DIR / f"{slug}-white.json")
+        black_book_path = str(PLAYERS_DIR / f"{slug}-black.json")
+        profile_path    = str(PLAYERS_DIR / f"{slug}-profile.json")
+
+        def _make_callback(_slug, _out, _white, _black, _profile, _player):
+            def _on_complete(status: str, exit_code: int) -> None:
+                if status == "done":
+                    elo = None
+                    try:
+                        with open(_out, encoding="utf-8") as f:
+                            model = json.load(f)
+                        elo = model.get("opponent_elo")
+                    except Exception:
+                        pass
+                    profile_exists = Path(_profile).exists()
+                    featured_player_manager.set_ready(
+                        _slug, elo, _white, _black, _out,
+                        _profile if profile_exists else None,
+                    )
+                    if profile_exists:
+                        threading.Thread(
+                            target=_generate_player_description,
+                            args=(_slug, _player["display_name"], _player.get("title"), _profile),
+                            daemon=True,
+                        ).start()
+                else:
+                    featured_player_manager.set_failed(_slug)
+            return _on_complete
+
+        if job.status == "running":
+            registry.set_completion_callback(
+                job.id,
+                _make_callback(slug, out_path, white_book_path, black_book_path, profile_path, player),
+            )
+
+
+_restore_featured_player_callbacks()
+
 # Opening-book cache for bot move lookup (same SQLite file as the CLI uses).
 from mysecond.cache import Cache as _OpeningCache
 _opening_cache = _OpeningCache(DATA_DIR / "cache.sqlite")
@@ -990,6 +1054,8 @@ def api_player_repertoire(slug: str, color: str):
             top_n     = PLAYER_MAX if is_player_turn else OPP_MAX
             top_moves = [{"uci": m["uci"], "games": m.get("games", 0)}
                          for m in sorted(book_moves, key=lambda m: -m.get("games", 0))[:top_n]]
+            # Total games at this position across ALL moves (for frequency %).
+            position_total = sum(m.get("games", 0) for m in book_moves)
         elif not is_player_turn:
             # Opponent's turn and position not in book (e.g. starting FEN for
             # Black's repertoire).  Probe all legal moves and keep those whose
@@ -1003,6 +1069,7 @@ def api_player_repertoire(slug: str, color: str):
                     total = sum(s.get("games", 0) for s in sub)
                     candidates.append({"uci": opp_move.uci(), "games": total})
             top_moves = sorted(candidates, key=lambda m: -m["games"])[:OPP_MAX]
+            position_total = sum(m["games"] for m in candidates)
         else:
             continue  # player's turn but no book data — dead end
 
@@ -1020,13 +1087,14 @@ def api_player_repertoire(slug: str, color: str):
 
             games    = m.get("games", 0)
             child_id = f"{parent_node['id']}.{i}"
+            pct = round(games / position_total * 100) if position_total else 0
             child_node = {
                 "id": child_id, "parent_id": parent_node["id"],
                 "fen": after.fen(),
                 "move_san": san, "move_uci": uci,
                 "move_orig": uci[:2], "move_dest": uci[2:4],
                 "comment": f"{games:,} games" if games else "",
-                "freq": {"games": games, "total": games, "pct": 100,
+                "freq": {"games": games, "total": position_total, "pct": pct,
                          "wins": None, "draws": None, "losses": None} if is_player_turn else None,
                 "depth": depth + 1,
                 "is_player_move": is_player_turn,
