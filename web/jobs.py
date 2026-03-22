@@ -781,7 +781,7 @@ class JobQueue:
     """
 
     HEAVY = {"search", "habits", "strategise", "repertoire"}
-    MAX_CONCURRENT = 4
+    MAX_CONCURRENT = 10
 
     def __init__(self) -> None:
         self._sem = threading.Semaphore(self.MAX_CONCURRENT)
