@@ -9,8 +9,10 @@ from pathlib import Path
 import chess
 import chess.engine
 
-# Use most available cores, leaving one free for the OS / web server.
-_DEFAULT_THREADS = max(1, (os.cpu_count() or 1) - 1)
+# Threads per Stockfish instance. Override with MYSECOND_STOCKFISH_THREADS env var.
+# Default: all cores minus one (good for single-job use; reduce for concurrent jobs).
+_DEFAULT_THREADS = int(os.environ.get("MYSECOND_STOCKFISH_THREADS", "") or
+                       max(1, (os.cpu_count() or 1) - 1))
 
 
 def find_stockfish() -> Path:
