@@ -8,7 +8,8 @@
   <link rel="canonical" href="https://mysecond.app/players/{{ player.slug }}">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <!-- Open Graph / social sharing -->
-  {% set _og_img = player.photo_url or player.avatar_url or 'https://mysecond.app/static/og.png' %}
+  {% set _raw_img = player.photo_url or player.avatar_url or '/static/og.png' %}
+  {% set _og_img = ('https://mysecond.app' + _raw_img) if _raw_img.startswith('/') else _raw_img %}
   <meta property="og:type"        content="website">
   <meta property="og:site_name"   content="mysecond">
   <meta property="og:url"         content="https://mysecond.app/players/{{ player.slug }}">
