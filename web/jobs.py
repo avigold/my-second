@@ -201,7 +201,7 @@ class JobRegistry:
             id=str(uuid.uuid4()),
             command=command,
             params=params,
-            status="running",
+            status="queued",
             started_at=datetime.now(tz=timezone.utc),
             out_path=out_path,
             user_id=user_id,
@@ -214,10 +214,14 @@ class JobRegistry:
     def get(self, job_id: str) -> Job | None:
         with self._lock:
             job = self._jobs.get(job_id)
-        if job is not None:
-            return job
-        # Fall back to DB — handles requests routed to a different gunicorn worker.
-        return self._fetch_from_db(job_id)
+        if job is None:
+            # Not in memory — fetch from DB (handles cross-worker requests).
+            return self._fetch_from_db(job_id)
+        # Re-fetch from DB for active jobs so status reflects the worker's latest updates.
+        if job.status in ("queued", "running"):
+            fresh = self._fetch_from_db(job_id)
+            return fresh if fresh is not None else job
+        return job
 
     def list_all(self) -> list[dict]:
         with self._lock:
@@ -286,12 +290,17 @@ class JobRegistry:
         return [j.to_dict() for j in sorted(jobs, key=lambda j: j.started_at, reverse=True)]
 
     def has_running_job(self, user_id: str) -> bool:
-        """Return True if the user already has a running or queued job."""
-        with self._lock:
-            return any(
-                j.user_id == user_id and j.status in ("running", "queued")
-                for j in self._jobs.values()
+        """Return True if the user already has a running or queued job.
+
+        Queries the DB directly so status reflects the worker's latest updates,
+        not stale in-memory state.
+        """
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM jobs WHERE user_id=%s AND status IN ('running', 'queued')",
+                (user_id,),
             )
+            return cur.fetchone()[0] > 0
 
     # ------------------------------------------------------------------
     # Admin methods
@@ -310,8 +319,9 @@ class JobRegistry:
                 "SELECT COUNT(*) FROM jobs WHERE started_at >= date_trunc('day', NOW())"
             )
             jobs_today = cur.fetchone()[0]
-        with self._lock:
-            running = sum(1 for j in self._jobs.values() if j.status in ("running", "queued"))
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('running', 'queued')")
+            running = cur.fetchone()[0]
         return {
             "total_users":     total_users,
             "pro_subscribers": pro_subscribers,
@@ -411,6 +421,20 @@ class JobRegistry:
             row = cur.fetchone()
         return row[0].splitlines() if row and row[0] else []
 
+    def get_log_and_status_from_db(self, job_id: str) -> tuple[list[str], str]:
+        """Return (log_lines, status) for a job, read directly from DB.
+
+        Used by the SSE endpoint to replay existing lines before subscribing to
+        Redis pub/sub, so we don't miss lines published before SSE connected.
+        """
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT log_text, status FROM jobs WHERE id=%s", (job_id,))
+            row = cur.fetchone()
+        if not row:
+            return [], "failed"
+        log_text, status = row
+        return (log_text.splitlines() if log_text else []), status
+
     def set_completion_callback(self, job_id: str, fn) -> None:
         """Register (or replace) the completion callback for an existing job.
 
@@ -452,13 +476,25 @@ class JobRegistry:
                 job.finished_at = now
 
     def mark_cancelled(self, job_id: str) -> bool:
-        """Mark a running or queued job as cancelled.
-        Returns True if the job existed and was running or queued."""
+        """Mark a running or queued job as cancelled in DB and memory.
+
+        Writes to DB first so the worker process sees the cancellation signal.
+        Returns True if the job was found and was running or queued.
+        """
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET status='cancelled' WHERE id=%s AND status IN ('running', 'queued') RETURNING id",
+                (job_id,),
+            )
+            updated = cur.fetchone()
+            conn.commit()
+        if not updated:
+            return False
+        # Sync in-memory copy if present.
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job.status not in ("running", "queued"):
-                return False
-            job.status = "cancelled"
+            if job:
+                job.status = "cancelled"
         return True
 
     def delete(self, job_id: str) -> bool:

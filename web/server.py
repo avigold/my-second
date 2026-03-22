@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-import queue
 import re
-import signal
 import threading
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -62,8 +61,7 @@ from jobs import Job, JobRegistry
 import maia_engine
 from pgn_parser import parse_novelties
 from repertoire_parser import parse_repertoire
-from runner import build_fetch_argv, build_habits_argv, build_import_argv, build_repertoire_argv, build_search_argv, build_strategise_argv, build_train_bot_argv, build_featured_player_argv, launch_job, make_launch_fn
-from jobs import JobQueue
+import redis as _redis_lib
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -114,76 +112,16 @@ if "connect_timeout" not in DATABASE_URL:
     DATABASE_URL += ("&" if "?" in DATABASE_URL else "?") + "connect_timeout=10"
 
 registry = JobRegistry(DATABASE_URL)
-job_queue = JobQueue()
 bot_manager = BotManager(DATABASE_URL)
 featured_player_manager = FeaturedPlayerManager(DATABASE_URL)
+
+_REDIS_URL       = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+_REDIS_QUEUE_KEY = "mysecond:jobs:queued"
+_redis = _redis_lib.from_url(_REDIS_URL, decode_responses=True)
 
 PLAYERS_DIR = DATA_DIR / "players"
 PLAYERS_DIR.mkdir(parents=True, exist_ok=True)
 
-
-def _restore_featured_player_callbacks() -> None:
-    """Re-attach completion callbacks to orphaned train-bot jobs after restart.
-
-    _load_existing() starts _watch_orphan threads for running jobs, but those
-    threads don't have a _completion_fn.  Without it, featured_player_manager
-    .set_ready() is never called when the subprocess finishes.  This function
-    iterates over all in-memory jobs, finds running train-bot jobs with a
-    featured_slug, and registers the same callback that the launch route would
-    have set.
-    """
-    with registry._lock:
-        jobs_snapshot = list(registry._jobs.values())
-
-    for job in jobs_snapshot:
-        if job.command != "train-bot":
-            continue
-        slug = job.params.get("featured_slug")
-        if not slug:
-            continue
-
-        player = featured_player_manager.get(slug)
-        if player is None:
-            continue
-
-        out_path        = job.out_path or str(OUTPUT_DIR / f"{job.id}.json")
-        white_book_path = str(PLAYERS_DIR / f"{slug}-white.json")
-        black_book_path = str(PLAYERS_DIR / f"{slug}-black.json")
-        profile_path    = str(PLAYERS_DIR / f"{slug}-profile.json")
-
-        def _make_callback(_slug, _out, _white, _black, _profile, _player):
-            def _on_complete(status: str, exit_code: int) -> None:
-                if status == "done":
-                    elo = None
-                    try:
-                        with open(_out, encoding="utf-8") as f:
-                            model = json.load(f)
-                        elo = model.get("opponent_elo")
-                    except Exception:
-                        pass
-                    profile_exists = Path(_profile).exists()
-                    featured_player_manager.set_ready(
-                        _slug, elo, _white, _black, _out,
-                        _profile if profile_exists else None,
-                    )
-                    if profile_exists:
-                        threading.Thread(
-                            target=_generate_player_description,
-                            args=(_slug, _player["display_name"], _player.get("title"), _profile),
-                            daemon=True,
-                        ).start()
-                else:
-                    featured_player_manager.set_failed(_slug)
-            return _on_complete
-
-        if job.status == "running":
-            registry.set_completion_callback(
-                job.id,
-                _make_callback(slug, out_path, white_book_path, black_book_path, profile_path, player),
-            )
-
-
-_restore_featured_player_callbacks()
 
 # Opening-book cache for bot move lookup (same SQLite file as the CLI uses).
 from mysecond.cache import Cache as _OpeningCache
@@ -419,10 +357,8 @@ def api_fetch():
     job = registry.create("fetch", params, out_path=None, user_id=user["id"] if user else None)
     # Set out_path to a UUID-named PGN so games can be browsed after fetch.
     pgn_out = str(OUTPUT_DIR / f"{job.id}.pgn")
-    registry.set_out_path(job.id, pgn_out)  # persist immediately — orphan recovery needs this
-    params["pgn_out"] = pgn_out     # picked up by build_fetch_argv → --out
-    argv = build_fetch_argv(params)
-    launch_job(job, argv, REPO_ROOT, registry)
+    registry.set_out_path(job.id, pgn_out)  # persist before pushing to Redis
+    _redis.rpush(_REDIS_QUEUE_KEY, job.id)
     return jsonify({"job_id": job.id})
 
 
@@ -437,12 +373,8 @@ def api_search():
     if err := _check_plan_limit(user, "search"): return err
     job = registry.create("search", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
-    job.out_path = out_path
-    registry.set_out_path(job.id, out_path)  # persist immediately — orphan recovery needs this
-
-    argv = build_search_argv(params, out_path)
-    job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
-    job_queue.enqueue(job, registry)
+    registry.set_out_path(job.id, out_path)
+    _redis.rpush(_REDIS_QUEUE_KEY, job.id)
     return jsonify({"job_id": job.id})
 
 
@@ -603,10 +535,7 @@ def api_job(job_id: str):
     job = registry.get(job_id)
     if job is None:
         return jsonify({"error": "not found"}), 404
-    d = job.to_dict()
-    if d["status"] == "queued":
-        d["queue_position"] = job_queue.queue_position(job_id)
-    return jsonify(d)
+    return jsonify(job.to_dict())
 
 
 @app.get("/api/jobs/<job_id>/novelties")
@@ -621,37 +550,68 @@ def api_novelties(job_id: str):
     return jsonify(parse_novelties(job.out_path, root_fen, side))
 
 
+_REDIS_LOG_PREFIX = "mysecond:job:"
+_REDIS_LOG_SUFFIX = ":log"
+
+
 @app.get("/api/jobs/<job_id>/stream")
 def api_stream(job_id: str):
-    """SSE endpoint that streams job stdout line-by-line."""
+    """SSE endpoint that streams job stdout via Redis pub/sub + DB replay."""
     job = registry.get(job_id)
     if job is None:
         return "Job not found", 404
 
     def _generate():
-        # If the job is queued, tell the client to poll and wait.
-        if job.status == "queued":
-            yield "event: queued\ndata: \n\n"
-            return
-        # If the job is already finished, replay the stored lines then close.
-        if job.status != "running":
-            for line in job.log_lines:
-                yield f"data: {json.dumps({'line': line})}\n\n"
-            yield "event: done\ndata: \n\n"
-            return
+        # Subscribe to Redis FIRST to avoid missing lines published between the
+        # DB read below and when we start receiving from Redis.
+        ps = _redis.pubsub()
+        ps.subscribe(f"{_REDIS_LOG_PREFIX}{job_id}{_REDIS_LOG_SUFFIX}")
 
-        # Live streaming while the job runs.
-        while True:
-            try:
-                item = job.queue.get(timeout=5.0)
-                if item is None:
-                    # Sentinel: job finished.
+        try:
+            # Read current state from DB (accurate — bypasses stale in-memory copy).
+            lines, status = registry.get_log_and_status_from_db(job_id)
+            n_from_db = len(lines)
+
+            # Replay lines already written before this SSE connection opened.
+            for line in lines:
+                yield f"data: {json.dumps({'line': line})}\n\n"
+
+            # If the job already finished, close immediately.
+            if status in ("done", "failed", "cancelled"):
+                yield "event: done\ndata: \n\n"
+                return
+
+            # Stream new lines from Redis as the worker publishes them.
+            # Lines with n < n_from_db were already sent above; skip duplicates.
+            last_db_check = time.time()
+            while True:
+                msg = ps.get_message(ignore_subscribe_messages=True, timeout=5.0)
+                if msg is None:
+                    yield ": keepalive\n\n"
+                    # Periodic DB fallback: detects jobs that finished without
+                    # a Redis sentinel (e.g. worker crashed mid-job).
+                    if time.time() - last_db_check > 10:
+                        _, cur_status = registry.get_log_and_status_from_db(job_id)
+                        if cur_status in ("done", "failed", "cancelled"):
+                            yield "event: done\ndata: \n\n"
+                            return
+                        last_db_check = time.time()
+                    continue
+
+                data = json.loads(msg["data"])
+                if data.get("done"):
                     yield "event: done\ndata: \n\n"
                     break
-                yield f"data: {json.dumps({'line': item})}\n\n"
-            except queue.Empty:
-                # Keepalive comment to prevent proxy / browser timeout.
-                yield ": keepalive\n\n"
+
+                n = data.get("n", 0)
+                if n >= n_from_db:
+                    yield f"data: {json.dumps({'line': data['text']})}\n\n"
+        finally:
+            try:
+                ps.unsubscribe()
+                ps.close()
+            except Exception:
+                pass
 
     return Response(
         stream_with_context(_generate()),
@@ -686,17 +646,6 @@ def _check_user_job_limit(user: dict | None):
                      "Wait for it to finish or cancel it before starting a new one."
         }), 409
     return None
-
-
-def _kill_job_process(job) -> None:
-    """Send SIGTERM to the entire process group so child processes
-    (e.g. Stockfish workers) are also terminated, not just the CLI process."""
-    if job.process is None:
-        return
-    try:
-        os.killpg(os.getpgid(job.process.pid), signal.SIGTERM)
-    except (ProcessLookupError, OSError):
-        pass  # already exited
 
 
 # ---------------------------------------------------------------------------
@@ -751,10 +700,10 @@ def api_cancel_job(job_id: str):
         return jsonify({"error": "forbidden"}), 403
     if job.status not in ("running", "queued"):
         return jsonify({"error": "job not running or queued"}), 400
-    # Mark cancelled before killing so the reader thread preserves the status.
-    registry.mark_cancelled(job_id)
-    job_queue.remove(job_id)   # no-op if not in queue; removes if queued
-    _kill_job_process(job)     # no-op if no process yet (queued)
+    # Write 'cancelled' to DB — the worker polls DB every 20 lines and will kill
+    # the subprocess when it sees the status change.
+    if not registry.mark_cancelled(job_id):
+        return jsonify({"error": "job not running or queued"}), 400
     return jsonify({"status": "cancelled"})
 
 
@@ -763,11 +712,9 @@ def api_delete_job(job_id: str):
     job = registry.get(job_id)
     if job is None:
         return jsonify({"error": "not found"}), 404
-    # Kill the whole process group if still running; dequeue if queued.
+    # Signal the worker to cancel if the job is still active.
     if job.status in ("running", "queued"):
         registry.mark_cancelled(job_id)
-        job_queue.remove(job_id)
-        _kill_job_process(job)
     # Remove output file if present.
     if job.out_path:
         try:
@@ -802,12 +749,8 @@ def api_repertoire():
     if err := _check_plan_limit(user, "repertoire"): return err
     job = registry.create("repertoire", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
-    job.out_path = out_path
-    registry.set_out_path(job.id, out_path)  # persist immediately — orphan recovery needs this
-
-    argv = build_repertoire_argv(params, out_path)
-    job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
-    job_queue.enqueue(job, registry)
+    registry.set_out_path(job.id, out_path)
+    _redis.rpush(_REDIS_QUEUE_KEY, job.id)
     return jsonify({"job_id": job.id})
 
 
@@ -1343,12 +1286,8 @@ def api_habits():
     if err := _check_plan_limit(user, "habits"): return err
     job = registry.create("habits", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.pgn")
-    job.out_path = out_path
-    registry.set_out_path(job.id, out_path)  # persist immediately — orphan recovery needs this
-
-    argv = build_habits_argv(params, out_path)
-    job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
-    job_queue.enqueue(job, registry)
+    registry.set_out_path(job.id, out_path)
+    _redis.rpush(_REDIS_QUEUE_KEY, job.id)
     return jsonify({"job_id": job.id})
 
 
@@ -1379,12 +1318,8 @@ def api_strategise():
     if err := _check_plan_limit(user, "strategise"): return err
     job = registry.create("strategise", params, user_id=user["id"] if user else None)
     out_path = str(OUTPUT_DIR / f"{job.id}.json")
-    job.out_path = out_path
-    registry.set_out_path(job.id, out_path)  # persist immediately — orphan recovery needs this
-
-    argv = build_strategise_argv(params, out_path)
-    job._launch_fn = make_launch_fn(job, argv, REPO_ROOT, registry)
-    job_queue.enqueue(job, registry)
+    registry.set_out_path(job.id, out_path)
+    _redis.rpush(_REDIS_QUEUE_KEY, job.id)
     return jsonify({"job_id": job.id})
 
 
@@ -1633,24 +1568,8 @@ def api_create_bot():
         job_id=job.id,
     )
 
-    # Completion callback: update bot status when training finishes.
-    def _on_complete(status: str, exit_code: int) -> None:
-        if status == "done":
-            # Try to read opponent_elo from the written model JSON.
-            elo = None
-            try:
-                import json as _json
-                with open(out_path, encoding="utf-8") as f:
-                    model = _json.load(f)
-                elo = model.get("opponent_elo")
-            except Exception:
-                pass
-            bot_manager.set_status(bot_id, "ready", opponent_elo=elo)
-        else:
-            bot_manager.set_status(bot_id, "failed")
-
-    argv = build_train_bot_argv(job_params, out_path)
-    launch_job(job, argv, REPO_ROOT, registry, completion_callback=_on_complete)
+    # Worker handles the completion callback (updates bots table by looking up job_id).
+    _redis.rpush(_REDIS_QUEUE_KEY, job.id)
     return jsonify({"bot_id": bot_id, "job_id": job.id})
 
 
@@ -1805,12 +1724,11 @@ def api_import_pgn():
     if err := _check_plan_limit(user, "import"): return err
     job = registry.create("import", params, user_id=user["id"] if user else None)
 
-    # Save the uploaded file under the job ID so the subprocess can read it.
+    # Save the uploaded file under the job ID so the worker can find it.
     pgn_path = str(UPLOADS_DIR / f"{job.id}.pgn")
     pgn_file.save(pgn_path)
 
-    argv = build_import_argv(params, pgn_path)
-    launch_job(job, argv, REPO_ROOT, registry)
+    _redis.rpush(_REDIS_QUEUE_KEY, job.id)
     return jsonify({"job_id": job.id})
 
 
@@ -1972,31 +1890,8 @@ def api_admin_players_create():
     job.out_path = out_path
     registry.set_out_path(job.id, out_path)
 
-    def _on_complete(status: str, exit_code: int) -> None:
-        if status == "done":
-            elo = None
-            try:
-                with open(out_path, encoding="utf-8") as f:
-                    model = json.load(f)
-                elo = model.get("opponent_elo")
-            except Exception:
-                pass
-            profile_path_exists = Path(profile_path).exists()
-            featured_player_manager.set_ready(
-                slug, elo, white_book_path, black_book_path, out_path,
-                profile_path if profile_path_exists else None,
-            )
-            if profile_path_exists:
-                threading.Thread(
-                    target=_generate_player_description,
-                    args=(slug, display_name, title, profile_path),
-                    daemon=True,
-                ).start()
-        else:
-            featured_player_manager.set_failed(slug)
-
-    argv = build_featured_player_argv(job_params, out_path, white_book_path, black_book_path, profile_path)
-    launch_job(job, argv, REPO_ROOT, registry, completion_callback=_on_complete)
+    # Worker handles completion (featured_slug in params tells it to update featured_players).
+    _redis.rpush(_REDIS_QUEUE_KEY, job.id)
     return jsonify({"slug": slug, "job_id": job.id}), 201
 
 
@@ -2118,42 +2013,22 @@ def api_admin_players_retrain(slug: str):
         "speeds": speeds,
         "color": "both",
     }
-    job = registry.create("train-bot", {**job_params, "featured_slug": slug}, user_id=None)
-    out_path        = str(OUTPUT_DIR / f"{job.id}.json")
-    white_book_path = str(PLAYERS_DIR / f"{slug}-white.json")
-    black_book_path = str(PLAYERS_DIR / f"{slug}-black.json")
-    job.out_path = out_path
+    job = registry.create(
+        "train-bot",
+        {
+            **job_params,
+            "featured_slug":      slug,
+            "regen_profile":      regen_profile,
+            "regen_description":  regen_description,
+            "force_description":  True,   # retrain always overwrites existing description
+        },
+        user_id=None,
+    )
+    out_path = str(OUTPUT_DIR / f"{job.id}.json")
     registry.set_out_path(job.id, out_path)
 
-    def _on_complete(status: str, exit_code: int) -> None:
-        if status == "done":
-            elo = None
-            try:
-                with open(out_path, encoding="utf-8") as f:
-                    model = json.load(f)
-                elo = model.get("opponent_elo")
-            except Exception:
-                pass
-            profile_path_exists = Path(profile_path).exists()
-            featured_player_manager.set_ready(
-                slug, elo, white_book_path, black_book_path, out_path,
-                profile_path if profile_path_exists else None,
-            )
-            if profile_path_exists and regen_description:
-                threading.Thread(
-                    target=_generate_player_description,
-                    args=(slug, player["display_name"], player.get("title"), profile_path),
-                    kwargs={"force": True},
-                    daemon=True,
-                ).start()
-        else:
-            featured_player_manager.set_failed(slug)
-
-    argv = build_featured_player_argv(
-        job_params, out_path, white_book_path, black_book_path, profile_path,
-        include_profile=regen_profile,
-    )
-    launch_job(job, argv, REPO_ROOT, registry, completion_callback=_on_complete)
+    # Worker handles completion (updates featured_players and generates description).
+    _redis.rpush(_REDIS_QUEUE_KEY, job.id)
     return jsonify({"slug": slug, "job_id": job.id})
 
 
