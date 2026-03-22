@@ -1,10 +1,11 @@
+{% set _platform_display = 'Chess.com' if player.platform == 'chesscom' else 'Lichess' %}
 <!DOCTYPE html>
 <html lang="en" style="overflow-x:hidden;">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ player.display_name }}{% if player.title %} ({{ player.title }}){% endif %} Opening Repertoire & Bot | mysecond</title>
-  <meta name="description" content="Practice against {{ player.display_name }}'s real opening repertoire, built from their game history on {{ player.platform }}. Free — no login required.">
+  <meta name="description" content="Practice against {{ player.display_name }}'s real opening repertoire, built from their game history on {{ _platform_display }}. Free — no login required.">
   <link rel="canonical" href="https://mysecond.app/players/{{ player.slug }}">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <!-- Open Graph / social sharing -->
@@ -14,21 +15,34 @@
   <meta property="og:site_name"   content="mysecond">
   <meta property="og:url"         content="https://mysecond.app/players/{{ player.slug }}">
   <meta property="og:title"       content="{{ player.display_name }}{% if player.title %} ({{ player.title }}){% endif %} — Opening Repertoire & Bot | mysecond">
-  {% set _og_desc = player.description or ('Practice against ' + player.display_name + "'s real opening repertoire, built from their game history on " + player.platform + '. Free — no login required.') %}
+  {% set _og_desc = player.description or ('Practice against ' + player.display_name + "'s real opening repertoire, built from their game history on " + _platform_display + '. Free — no login required.') %}
   <meta property="og:description" content="{{ _og_desc }}">
   <meta property="og:image"       content="{{ _og_img }}">
+  <meta property="og:image:width"  content="1200">
+  <meta property="og:image:height" content="630">
   <!-- Twitter / X Card -->
   <meta name="twitter:card"        content="summary_large_image">
   <meta name="twitter:title"       content="{{ player.display_name }}{% if player.title %} ({{ player.title }}){% endif %} — Opening Repertoire & Bot | mysecond">
   {% set _tw_desc = player.description or ('Practice against ' + player.display_name + "'s real opening repertoire. Free — no login required.") %}
   <meta name="twitter:description" content="{{ _tw_desc }}">
   <meta name="twitter:image"       content="{{ _og_img }}">
+  {% set _json_ld_desc = player.description or ('Practice against ' + player.display_name + "'s opening repertoire on mysecond. Free — no login required.") %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "name": {{ player.display_name | tojson }},
+    "url": "https://mysecond.app/players/{{ player.slug }}",
+    "image": {{ _og_img | tojson }},
+    "description": {{ _json_ld_desc | tojson }}
+  }
+  </script>
 </head>
 <body style="margin:0; padding:0; background:#030712; color:#f3f4f6;">
   {# SSR content for SEO crawlers — hidden visually but indexable. #}
   <div style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap;">
     <h1>{{ player.display_name }}{% if player.title %} ({{ player.title }}){% endif %}</h1>
-    {% if player.elo %}<p>{{ player.elo }} Elo · {{ player.platform }}</p>{% endif %}
+    {% if player.elo %}<p>{{ player.elo }} Elo · {{ _platform_display }}</p>{% endif %}
     {% if player.description %}<p>{{ player.description }}</p>{% endif %}
   </div>
 

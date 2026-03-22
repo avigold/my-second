@@ -5,6 +5,23 @@
 {% block meta %}
 <link rel="stylesheet" href="/static/landing.css">
 {% endblock %}
+{% block json_ld %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "My Second",
+  "url": "https://mysecond.app",
+  "applicationCategory": "GameApplication",
+  "operatingSystem": "Web",
+  "description": "AI-powered chess analysis. Find opening novelties, analyse recurring mistakes, extract your opening repertoire, and get AI-powered preparation briefs against any opponent.",
+  "offers": [
+    { "@type": "Offer", "name": "Free", "price": "0", "priceCurrency": "USD" },
+    { "@type": "Offer", "name": "Pro", "price": "9", "priceCurrency": "USD", "billingIncrement": "P1M" }
+  ]
+}
+</script>
+{% endblock %}
 {% block main_class %}w-full max-w-none{% endblock %}
 {% block main_px %}{% endblock %}
 {% block main_padding %}p-0{% endblock %}
