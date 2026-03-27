@@ -45,6 +45,12 @@ from typing import Any
 import chess
 import chess.pgn
 import requests
+try:
+    from curl_cffi.requests import Session as _CurlSession
+    _CURL_CFFI_AVAILABLE = True
+except ImportError:
+    _CurlSession = None
+    _CURL_CFFI_AVAILABLE = False
 
 from .cache import Cache
 
@@ -318,8 +324,12 @@ def _download_chesscom_pgn(
     from calendar import monthrange
 
     speeds_set = {s.strip().lower() for s in speeds.split(",")}
-    session = requests.Session()
-    session.headers.update(_CHESSCOM_HEADERS)
+    if _CURL_CFFI_AVAILABLE:
+        session = _CurlSession(impersonate="chrome124")
+        session.headers.update(_CHESSCOM_HEADERS)
+    else:
+        session = requests.Session()
+        session.headers.update(_CHESSCOM_HEADERS)
 
     # Verify the player exists.
     try:
