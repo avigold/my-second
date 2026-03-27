@@ -37,7 +37,6 @@ from __future__ import annotations
 import io
 import json
 import sys
-import os
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -60,37 +59,6 @@ _HEADERS = {
 _CHESSCOM_HEADERS = {
     "User-Agent": "mysecond/0.1.0 (chess analysis tool; contact@mysecond.app)",
 }
-
-# ---------------------------------------------------------------------------
-# Chess.com global rate limiter
-#
-# Chess.com rate-limits by IP.  With multiple concurrent jobs each making
-# dozens of API requests, we exhaust the quota quickly.  We use a Redis
-# token bucket (max _CHESSCOM_MAX_RPS requests/second) shared across all
-# worker subprocesses so aggregate request rate stays within limits.
-# ---------------------------------------------------------------------------
-
-_CHESSCOM_MAX_RPS   = 2          # max requests per second to Chess.com (across all jobs)
-_CHESSCOM_REDIS_KEY = "mysecond:chesscom:rps:{ts}"  # per-second counter key
-
-
-def _chesscom_throttle() -> None:
-    """Block until we're within the global Chess.com request rate."""
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    try:
-        import redis as _redis_mod
-        r = _redis_mod.from_url(redis_url, socket_connect_timeout=1, socket_timeout=1)
-        for _ in range(100):  # max ~10s of waiting
-            ts  = int(time.time())
-            key = _CHESSCOM_REDIS_KEY.format(ts=ts)
-            n   = r.incr(key)
-            r.expire(key, 3)
-            if n <= _CHESSCOM_MAX_RPS:
-                return
-            time.sleep(0.1)
-    except Exception:
-        # Redis unavailable: fall back to a conservative fixed delay.
-        time.sleep(0.5)
 
 
 # ---------------------------------------------------------------------------
@@ -454,9 +422,8 @@ def _chesscom_get_with_backoff(
     url: str,
     max_retries: int = 5,
 ) -> requests.Response:
-    """GET with exponential backoff on 429, guarded by a global rate limiter."""
+    """GET with exponential backoff on 429."""
     for attempt in range(max_retries):
-        _chesscom_throttle()
         resp = session.get(url, timeout=30)
         if resp.status_code == 429:
             wait = 2 ** attempt
