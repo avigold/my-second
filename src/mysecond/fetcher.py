@@ -368,6 +368,8 @@ def _download_chesscom_pgn(
     for i, url in enumerate(archives_reversed):
         if collected >= max_games:
             break
+        if i > 0:
+            time.sleep(0.4)  # be polite to Chess.com's rate limiter
         # Print progress every archive so the SSE stream stays alive.
         ym = url.rstrip("/").split("/")[-2:]
         ym_label = "/".join(ym) if len(ym) == 2 else url
@@ -420,7 +422,7 @@ def _parse_archive_ym(url: str) -> tuple[int, int]:
 def _chesscom_get_with_backoff(
     session: requests.Session,
     url: str,
-    max_retries: int = 5,
+    max_retries: int = 8,
 ) -> requests.Response:
     """GET with exponential backoff on 429."""
     for attempt in range(max_retries):
