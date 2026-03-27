@@ -323,15 +323,16 @@ def _download_chesscom_pgn(
 
     # Verify the player exists.
     try:
-        profile_resp = session.get(
-            _CHESSCOM_PLAYER_URL.format(username=username), timeout=15
+        profile_resp = _chesscom_get_with_backoff(
+            session, _CHESSCOM_PLAYER_URL.format(username=username)
         )
-        if profile_resp.status_code == 404:
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
             raise RuntimeError(
                 f"Chess.com user '{username}' not found (404). "
                 "Check the spelling — Chess.com usernames are case-insensitive."
-            )
-        profile_resp.raise_for_status()
+            ) from exc
+        raise RuntimeError(f"Could not verify Chess.com user '{username}': {exc}") from exc
     except requests.RequestException as exc:
         raise RuntimeError(f"Could not verify Chess.com user '{username}': {exc}") from exc
 
@@ -340,10 +341,9 @@ def _download_chesscom_pgn(
 
     # Fetch archive list.
     try:
-        arch_resp = session.get(
-            _CHESSCOM_ARCHIVES_URL.format(username=canonical), timeout=15
+        arch_resp = _chesscom_get_with_backoff(
+            session, _CHESSCOM_ARCHIVES_URL.format(username=canonical)
         )
-        arch_resp.raise_for_status()
         archive_urls: list[str] = arch_resp.json().get("archives", [])
     except requests.RequestException as exc:
         raise RuntimeError(
@@ -426,7 +426,9 @@ def _chesscom_get_with_backoff(
     for attempt in range(max_retries):
         resp = session.get(url, timeout=30)
         if resp.status_code == 429:
-            time.sleep(2 ** attempt)
+            wait = 2 ** attempt
+            print(f"[fetch]  Chess.com rate limit (429) — retrying in {wait}s …", flush=True)
+            time.sleep(wait)
             continue
         resp.raise_for_status()
         return resp
