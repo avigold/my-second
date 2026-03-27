@@ -323,7 +323,7 @@ def _download_chesscom_pgn(
 
     # Verify the player exists.
     try:
-        profile_resp = _chesscom_get_with_backoff(
+        profile_resp, _ = _chesscom_get_with_backoff(
             session, _CHESSCOM_PLAYER_URL.format(username=username)
         )
     except requests.HTTPError as exc:
@@ -341,7 +341,7 @@ def _download_chesscom_pgn(
 
     # Fetch archive list.
     try:
-        arch_resp = _chesscom_get_with_backoff(
+        arch_resp, _ = _chesscom_get_with_backoff(
             session, _CHESSCOM_ARCHIVES_URL.format(username=canonical)
         )
         archive_urls: list[str] = arch_resp.json().get("archives", [])
@@ -364,12 +364,13 @@ def _download_chesscom_pgn(
     collected = 0
     archives_reversed = list(reversed(archive_urls))
     n_archives = len(archives_reversed)
+    inter_delay = 2.0  # seconds between archive requests; Chess.com throttles hard
 
     for i, url in enumerate(archives_reversed):
         if collected >= max_games:
             break
         if i > 0:
-            time.sleep(0.4)  # be polite to Chess.com's rate limiter
+            time.sleep(inter_delay)
         # Print progress every archive so the SSE stream stays alive.
         ym = url.rstrip("/").split("/")[-2:]
         ym_label = "/".join(ym) if len(ym) == 2 else url
@@ -382,7 +383,10 @@ def _download_chesscom_pgn(
         elif show_progress:
             print(f"[progress:{username}] {i + 1}/{n_archives}", flush=True)
         try:
-            resp = _chesscom_get_with_backoff(session, url)
+            resp, hit_429 = _chesscom_get_with_backoff(session, url)
+            if hit_429:
+                # We triggered the rate limiter; back off on subsequent archives.
+                inter_delay = min(inter_delay * 2, 10.0)
             games = resp.json().get("games", [])
         except requests.RequestException as exc:
             print(f"[fetch]  Warning: skipping {url}: {exc}", flush=True)
@@ -423,17 +427,28 @@ def _chesscom_get_with_backoff(
     session: requests.Session,
     url: str,
     max_retries: int = 8,
-) -> requests.Response:
-    """GET with exponential backoff on 429."""
+) -> tuple[requests.Response, bool]:
+    """GET with exponential backoff on 429.
+
+    Returns (response, hit_429) where hit_429 is True if any retry was needed.
+    """
     for attempt in range(max_retries):
         resp = session.get(url, timeout=30)
         if resp.status_code == 429:
-            wait = 2 ** attempt
+            # Honour Retry-After if Chess.com provides it.
+            retry_after = resp.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    wait = int(retry_after)
+                except ValueError:
+                    wait = 2 ** attempt
+            else:
+                wait = 2 ** attempt
             print(f"[fetch]  Chess.com rate limit (429) — retrying in {wait}s …", flush=True)
             time.sleep(wait)
             continue
         resp.raise_for_status()
-        return resp
+        return resp, attempt > 0
     raise RuntimeError(f"Rate-limited after {max_retries} retries: {url}")
 
 
